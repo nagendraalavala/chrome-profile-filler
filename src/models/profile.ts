@@ -40,7 +40,7 @@ export interface MatchResult {
 }
 
 export interface FormFieldInfo {
-  element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+  element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLElement;
   name: string;
   id: string;
   label: string;
@@ -48,6 +48,7 @@ export interface FormFieldInfo {
   placeholder: string;
   sectionHeading: string;
   autocomplete: string;
+  isContentEditable?: boolean;
 }
 
 export type MessageAction =
