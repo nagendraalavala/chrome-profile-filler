@@ -28,6 +28,7 @@ interface SerializedFormField {
   placeholder: string;
   sectionHeading: string;
   autocomplete: string;
+  isContentEditable?: boolean;
 }
 
 export default function App() {
