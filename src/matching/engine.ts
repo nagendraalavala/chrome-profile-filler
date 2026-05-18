@@ -151,8 +151,14 @@ export function matchFields(
 ): MatchResult[] {
   const results: MatchResult[] = [];
 
+  // Separate attachment-capable fields from regular profile fields
+  const attachmentFields = profileFields.filter((f) => f.isAttachment);
+  const regularFields = profileFields.filter((f) => !f.isAttachment);
+
   for (const formField of formFields) {
     const signature = getFieldSignature(formField);
+    const isFileField = formField.isFileInput || formField.type === "file";
+    const candidatePool = isFileField ? attachmentFields : regularFields;
 
     // 1. Check saved site mappings first
     const savedMapping = siteMappings.find(
@@ -171,6 +177,8 @@ export function matchFields(
           confidence: 1.0,
           selected: true,
           group: getGroupPrefix(matched.dotKey) || undefined,
+          isAttachment: matched.isAttachment,
+          attachment: matched.attachment,
         });
         continue;
       }
@@ -180,7 +188,7 @@ export function matchFields(
     let bestMatch: FlattenedField | null = null;
     let bestScore = 0;
 
-    for (const profileField of profileFields) {
+    for (const profileField of candidatePool) {
       const score = scoreCandidate(formField, profileField.dotKey);
       if (score > bestScore) {
         bestScore = score;
@@ -198,6 +206,8 @@ export function matchFields(
         confidence: Math.round(bestScore * 100) / 100,
         selected: bestScore >= 0.6,
         group: getGroupPrefix(bestMatch.dotKey) || undefined,
+        isAttachment: bestMatch.isAttachment,
+        attachment: bestMatch.attachment,
       });
     } else {
       results.push({

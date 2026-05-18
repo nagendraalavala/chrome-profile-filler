@@ -11,6 +11,14 @@ export function flattenFields(
 
     if (field.type === "GROUP" && field.children) {
       result.push(...flattenFields(field.children, dotKey));
+    } else if (field.type === "ATTACHMENT" && field.attachment) {
+      result.push({
+        dotKey,
+        value: field.attachment.fileName,
+        label: field.label,
+        isAttachment: true,
+        attachment: field.attachment,
+      });
     } else if (field.type === "FIELD" && field.value !== undefined) {
       result.push({
         dotKey,

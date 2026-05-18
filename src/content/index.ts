@@ -258,6 +258,30 @@ function scanIframeFields(): FormFieldInfo[] {
 // Main scan: combines standard inputs + contenteditable + iframes
 // ---------------------------------------------------------------------------
 
+function scanFileInputs(): FormFieldInfo[] {
+  const fields: FormFieldInfo[] = [];
+  const fileInputs = document.querySelectorAll<HTMLInputElement>("input[type='file']");
+
+  fileInputs.forEach((el) => {
+    if (!isVisible(el)) return;
+
+    fields.push({
+      element: el,
+      name: el.getAttribute("name") || "",
+      id: el.getAttribute("id") || "",
+      label: findLabel(el),
+      type: "file",
+      placeholder: "",
+      sectionHeading: findSectionHeading(el),
+      autocomplete: "",
+      isFileInput: true,
+      acceptTypes: el.getAttribute("accept") || "",
+    });
+  });
+
+  return fields;
+}
+
 function scanFormFields(): FormFieldInfo[] {
   const selector = "input, textarea, select";
   const elements = document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(selector);
@@ -289,6 +313,10 @@ function scanFormFields(): FormFieldInfo[] {
   const iframeFields = scanIframeFields();
   fields.push(...iframeFields);
 
+  // Scan file input fields for attachment support
+  const fileFields = scanFileInputs();
+  fields.push(...fileFields);
+
   return fields;
 }
 
@@ -303,12 +331,45 @@ function serializeFormFields(fields: FormFieldInfo[]): Array<Omit<FormFieldInfo,
     sectionHeading: f.sectionHeading,
     autocomplete: f.autocomplete,
     isContentEditable: f.isContentEditable,
+    isFileInput: f.isFileInput,
+    acceptTypes: f.acceptTypes,
   }));
 }
 
 // ---------------------------------------------------------------------------
-// Fill logic: standard inputs, selects, contenteditable, iframes
+// Fill logic: standard inputs, selects, contenteditable, iframes, files
 // ---------------------------------------------------------------------------
+
+function dataUrlToFile(dataUrl: string, fileName: string): File {
+  const [header, base64Data] = dataUrl.split(",");
+  const mimeMatch = header.match(/:(.*?);/);
+  const mimeType = mimeMatch ? mimeMatch[1] : "application/octet-stream";
+  const byteString = atob(base64Data);
+  const ab = new ArrayBuffer(byteString.length);
+  const ia = new Uint8Array(ab);
+  for (let i = 0; i < byteString.length; i++) {
+    ia[i] = byteString.charCodeAt(i);
+  }
+  return new File([ab], fileName, { type: mimeType });
+}
+
+function fillFileInput(
+  element: HTMLInputElement,
+  dataUrl: string,
+  fileName: string
+): boolean {
+  try {
+    const file = dataUrlToFile(dataUrl, fileName);
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    element.files = dt.files;
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function fillContentEditable(element: HTMLElement, value: string): void {
   element.focus();
@@ -370,14 +431,26 @@ chrome.runtime.onMessage.addListener(
       const serialized = serializeFormFields(lastScannedFields);
       sendResponse({ action: "FORM_FIELDS_RESULT", data: serialized });
     } else if (message.action === "FILL_FIELDS") {
-      const fillData = message.data as Array<{ index: number; value: string }>;
+      const fillData = message.data as Array<{
+        index: number;
+        value: string;
+        isAttachment?: boolean;
+        dataUrl?: string;
+        fileName?: string;
+      }>;
       let filledCount = 0;
 
       for (const item of fillData) {
         if (item.index >= 0 && item.index < lastScannedFields.length) {
           const field = lastScannedFields[item.index];
-          fillField(field.element, item.value, field.isContentEditable);
-          filledCount++;
+          if (item.isAttachment && item.dataUrl && item.fileName && field.element instanceof HTMLInputElement) {
+            if (fillFileInput(field.element, item.dataUrl, item.fileName)) {
+              filledCount++;
+            }
+          } else {
+            fillField(field.element, item.value, field.isContentEditable);
+            filledCount++;
+          }
         }
       }
 

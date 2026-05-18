@@ -119,6 +119,47 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   "banking.routingNumber": [
     "routing_number", "routing", "aba_number", "sort_code",
   ],
+
+  // Documents / Attachments
+  "documents.resume": [
+    "resume", "cv", "curriculum_vitae", "resume_upload", "cv_upload",
+    "upload_resume", "upload_cv", "resume_file", "cv_file",
+    "resume_attachment", "cv_attachment",
+  ],
+  "documents.coverLetter": [
+    "cover_letter", "coverletter", "cover_letter_upload", "upload_cover_letter",
+    "cover_letter_file", "motivation_letter", "application_letter",
+  ],
+  "documents.driversLicense": [
+    "drivers_license", "dl", "driving_license", "license",
+    "dl_upload", "upload_dl", "drivers_license_upload", "license_upload",
+    "dl_file", "license_file", "id_document",
+  ],
+  "documents.passport": [
+    "passport", "passport_upload", "upload_passport", "passport_file",
+    "passport_copy", "travel_document",
+  ],
+  "documents.idCard": [
+    "id_card", "national_id", "government_id", "photo_id",
+    "id_upload", "upload_id", "identity_document", "id_proof",
+  ],
+  "documents.photo": [
+    "photo", "profile_photo", "headshot", "avatar",
+    "photo_upload", "upload_photo", "profile_picture", "picture",
+  ],
+  "documents.transcript": [
+    "transcript", "academic_transcript", "transcript_upload",
+    "upload_transcript", "grade_sheet", "marksheet",
+  ],
+  "documents.certificate": [
+    "certificate", "certification", "cert_upload", "upload_certificate",
+    "diploma", "degree_certificate",
+  ],
+  "documents.other": [
+    "attachment", "file_upload", "upload_file", "document",
+    "document_upload", "upload_document", "other_document",
+    "additional_document", "supporting_document",
+  ],
 };
 
 /** Section heading keywords that boost scores for grouped fields. */
@@ -143,5 +184,9 @@ export const SECTION_BOOST_KEYWORDS: Record<string, string[]> = {
   ],
   "banking": [
     "banking", "bank", "payment", "financial", "direct deposit",
+  ],
+  "documents": [
+    "documents", "attachments", "uploads", "files", "upload documents",
+    "required documents", "supporting documents",
   ],
 };

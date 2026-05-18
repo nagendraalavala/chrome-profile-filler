@@ -1,4 +1,4 @@
-export type FieldType = "FIELD" | "GROUP";
+export type FieldType = "FIELD" | "GROUP" | "ATTACHMENT";
 
 export interface ProfileField {
   id: string;
@@ -8,6 +8,14 @@ export interface ProfileField {
   type: FieldType;
   children?: ProfileField[];
   collapsed?: boolean;
+  attachment?: DocumentInfo;
+}
+
+export interface DocumentInfo {
+  fileName: string;
+  mimeType: string;
+  size: number;
+  dataUrl: string; // base64-encoded data URL
 }
 
 export interface Profile {
@@ -20,6 +28,8 @@ export interface FlattenedField {
   dotKey: string;
   value: string;
   label: string;
+  isAttachment?: boolean;
+  attachment?: DocumentInfo;
 }
 
 export interface SiteMapping {
@@ -37,6 +47,8 @@ export interface MatchResult {
   confidence: number;
   selected: boolean;
   group?: string;
+  isAttachment?: boolean;
+  attachment?: DocumentInfo;
 }
 
 export interface FormFieldInfo {
@@ -49,6 +61,8 @@ export interface FormFieldInfo {
   sectionHeading: string;
   autocomplete: string;
   isContentEditable?: boolean;
+  isFileInput?: boolean;
+  acceptTypes?: string;
 }
 
 export type MessageAction =
