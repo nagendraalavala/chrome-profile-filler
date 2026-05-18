@@ -29,6 +29,8 @@ interface SerializedFormField {
   sectionHeading: string;
   autocomplete: string;
   isContentEditable?: boolean;
+  isFileInput?: boolean;
+  acceptTypes?: string;
 }
 
 export default function App() {
@@ -179,6 +181,9 @@ export default function App() {
         placeholder: f.placeholder,
         sectionHeading: f.sectionHeading,
         autocomplete: f.autocomplete,
+        isContentEditable: f.isContentEditable,
+        isFileInput: f.isFileInput,
+        acceptTypes: f.acceptTypes,
       }));
 
       const currentFlatFields = activeProfile
@@ -253,7 +258,13 @@ export default function App() {
               (sf.name && sf.name === m.formFieldName) ||
               (sf.id && sf.id === m.formFieldName)
           );
-          return { index: fieldIndex, value: m.value };
+          return {
+            index: fieldIndex,
+            value: m.value,
+            isAttachment: m.isAttachment,
+            dataUrl: m.attachment?.dataUrl,
+            fileName: m.attachment?.fileName,
+          };
         })
         .filter((d) => d.index >= 0);
 
