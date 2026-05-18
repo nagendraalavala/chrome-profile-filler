@@ -44,6 +44,26 @@ export default function App() {
   const [statusType, setStatusType] = useState<"success" | "error">("success");
   const [isScanning, setIsScanning] = useState(false);
 
+  // Detect if running in a full tab (vs popup)
+  const isFullTab = window.location.search.includes("tab=true") ||
+    (window.innerWidth > 500 && window.innerHeight > 600);
+
+  // Add full-tab-mode class to body when in tab
+  useEffect(() => {
+    if (isFullTab) {
+      document.body.classList.add("full-tab-mode");
+    }
+    return () => {
+      document.body.classList.remove("full-tab-mode");
+    };
+  }, [isFullTab]);
+
+  const handleOpenInTab = () => {
+    const popupUrl = chrome.runtime.getURL("popup.html?tab=true");
+    chrome.tabs.create({ url: popupUrl });
+    window.close();
+  };
+
   const activeProfile = profiles.find((p) => p.profileId === activeProfileId) || null;
 
   // Load profiles on mount
@@ -353,6 +373,15 @@ export default function App() {
       <div className="app-header">
         <h1>Profile Filler</h1>
         <div className="header-actions">
+          {!isFullTab && (
+            <button
+              className="header-btn open-tab-btn"
+              onClick={handleOpenInTab}
+              title="Open in full tab (required for document uploads)"
+            >
+              Open in Tab
+            </button>
+          )}
           <button
             className="header-btn"
             onClick={handleScanForm}

@@ -652,6 +652,30 @@ body {
   white-space: nowrap;
 }
 
+/* Open in Tab button */
+.open-tab-btn {
+  font-size: 11px !important;
+  padding: 3px 8px !important;
+  opacity: 0.85;
+}
+
+.open-tab-btn:hover {
+  opacity: 1;
+}
+
+/* Full-tab mode: when opened as chrome-extension://...popup.html?tab=true */
+@media (min-width: 501px) {
+  body.full-tab-mode {
+    width: 600px;
+    max-width: 100%;
+    margin: 0 auto;
+  }
+
+  .full-tab-mode .tab-content {
+    max-height: 600px;
+  }
+}
+
 /* Mobile-responsive improvements */
 @media (max-width: 500px) {
   body {
