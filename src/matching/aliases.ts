@@ -162,6 +162,139 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   ],
 };
 
+/**
+ * Synonym groups for bidirectional concept matching.
+ * All terms within a group are considered equivalent.
+ * Both form field names AND user profile keys are resolved against these groups.
+ * This allows users to use ANY key naming convention (e.g. "fname", "first_name",
+ * "firstName", "given_name") and still match form fields intelligently.
+ */
+export const SYNONYM_GROUPS: string[][] = [
+  // Name fields
+  ["first_name", "fname", "fn", "first", "given_name", "givenname", "forename", "firstname"],
+  ["last_name", "lname", "ln", "last", "surname", "family_name", "familyname", "lastname"],
+  ["full_name", "name", "fullname", "complete_name", "your_name"],
+  ["middle_name", "mname", "mn", "middle", "middlename"],
+  ["preferred_name", "nickname", "nick", "alias", "display_name"],
+
+  // Contact
+  ["email", "email_address", "emailaddress", "e_mail", "mail", "emailid", "email_id"],
+  ["phone", "phone_number", "phonenumber", "telephone", "tel", "mobile",
+   "cell", "cellphone", "cell_phone", "mobile_number", "contact_phone",
+   "ph", "phn", "contact_number", "phone_no", "mob", "mobile_no"],
+
+  // Address
+  ["street", "street_address", "address1", "address_line_1", "line1",
+   "address_line1", "addr", "addr1", "address", "mailing_address",
+   "home_address", "residential_address", "primary_address", "addressline1"],
+  ["address2", "addr2", "address_line_2", "line2", "apt", "apartment",
+   "suite", "unit", "address_line2", "addressline2", "street_address_2"],
+  ["city", "city_name", "town", "municipality", "locality"],
+  ["state", "province", "region", "state_name", "state_province"],
+  ["zip", "zipcode", "zip_code", "postal_code", "postalcode", "postcode",
+   "pin", "pincode", "pin_code"],
+  ["country", "country_name", "nation", "country_code"],
+
+  // Work
+  ["company", "company_name", "employer", "organization", "org",
+   "employer_name", "workplace", "firm", "co", "corp", "current_company"],
+  ["job_title", "jobtitle", "title", "designation", "role", "position",
+   "job_role", "work_title", "current_title", "position_title"],
+  ["years", "years_experience", "experience_years", "tenure",
+   "years_of_experience", "yoe", "exp", "experience", "total_experience",
+   "work_years"],
+  ["salary", "compensation", "pay", "wage", "ctc", "current_salary",
+   "expected_salary"],
+
+  // Education
+  ["school", "university", "college", "institution", "school_name",
+   "university_name", "college_name", "alma_mater", "institute"],
+  ["degree", "degree_type", "qualification", "education_level",
+   "highest_degree", "degree_name"],
+  ["major", "field_of_study", "specialization", "concentration",
+   "discipline", "subject", "branch", "stream"],
+  ["graduation_year", "grad_year", "year_graduated", "completion_year",
+   "passing_year", "batch"],
+  ["gpa", "grade", "cgpa", "grade_point_average", "percentage", "marks"],
+
+  // Social
+  ["linkedin", "linkedin_url", "linkedinprofile", "linkedin_profile",
+   "linkedin_link", "li"],
+  ["github", "github_url", "githubprofile", "github_profile",
+   "github_username", "gh"],
+  ["twitter", "twitter_url", "twitter_handle", "x_handle", "x_profile"],
+  ["website", "personal_website", "portfolio", "portfolio_url",
+   "homepage", "url", "blog", "personal_url", "web"],
+
+  // Documents
+  ["resume", "cv", "curriculum_vitae", "resume_file", "cv_file"],
+  ["cover_letter", "coverletter", "motivation_letter", "application_letter"],
+  ["drivers_license", "dl", "driving_license", "license",
+   "driver_license", "licence"],
+  ["passport", "travel_document", "passport_copy"],
+
+  // Dates
+  ["date_of_birth", "dob", "birthday", "birth_date", "birthdate", "bday"],
+  ["start_date", "startdate", "from_date", "begin_date", "joining_date"],
+  ["end_date", "enddate", "to_date", "finish_date", "leaving_date"],
+
+  // Identity
+  ["ssn", "social_security_number", "social_security", "ss_number"],
+  ["gender", "sex"],
+  ["nationality", "citizenship"],
+  ["marital_status", "marital", "relationship_status"],
+
+  // Misc
+  ["message", "comments", "notes", "additional_info", "remarks",
+   "additional_comments", "other_info"],
+  ["availability", "available", "notice_period", "start_availability"],
+  ["referral", "referred_by", "referrer", "reference", "how_did_you_hear"],
+];
+
+/**
+ * Common abbreviation expansions for token-level matching.
+ * When a token matches an abbreviation, it is expanded before comparison.
+ */
+export const TOKEN_ABBREVIATIONS: Record<string, string[]> = {
+  "fn": ["first", "name"],
+  "ln": ["last", "name"],
+  "mn": ["middle", "name"],
+  "fname": ["first", "name"],
+  "lname": ["last", "name"],
+  "mname": ["middle", "name"],
+  "addr": ["address"],
+  "addr1": ["address", "1"],
+  "addr2": ["address", "2"],
+  "ph": ["phone"],
+  "phn": ["phone"],
+  "mob": ["mobile"],
+  "tel": ["telephone"],
+  "co": ["company"],
+  "corp": ["company"],
+  "org": ["organization"],
+  "exp": ["experience"],
+  "yoe": ["years", "experience"],
+  "dob": ["date", "birth"],
+  "ssn": ["social", "security"],
+  "dl": ["drivers", "license"],
+  "cv": ["resume"],
+  "gpa": ["grade", "point"],
+  "li": ["linkedin"],
+  "gh": ["github"],
+  "url": ["website"],
+  "apt": ["apartment"],
+  "uni": ["university"],
+  "grad": ["graduation"],
+  "bday": ["birthday"],
+  "ref": ["reference"],
+  "msg": ["message"],
+  "info": ["information"],
+  "num": ["number"],
+  "no": ["number"],
+  "yr": ["year"],
+  "yrs": ["years"],
+};
+
 /** Section heading keywords that boost scores for grouped fields. */
 export const SECTION_BOOST_KEYWORDS: Record<string, string[]> = {
   "address": [

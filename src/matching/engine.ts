@@ -1,5 +1,5 @@
 import { FlattenedField, MatchResult, FormFieldInfo, SiteMapping } from "../models/profile";
-import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS } from "./aliases";
+import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS, SYNONYM_GROUPS, TOKEN_ABBREVIATIONS } from "./aliases";
 
 function normalize(str: string): string {
   return str
@@ -77,6 +77,67 @@ function buildAliasLookup(): Map<string, string> {
 
 const aliasLookup = buildAliasLookup();
 
+/**
+ * Builds a bidirectional concept lookup from SYNONYM_GROUPS.
+ * Maps each normalized term to a concept index so both form field names
+ * and user-defined profile keys can be resolved to the same concept.
+ */
+function buildConceptLookup(): Map<string, number> {
+  const lookup = new Map<string, number>();
+  for (let i = 0; i < SYNONYM_GROUPS.length; i++) {
+    for (const term of SYNONYM_GROUPS[i]) {
+      lookup.set(normalize(term), i);
+    }
+  }
+  return lookup;
+}
+
+const conceptLookup = buildConceptLookup();
+
+/** Resolve a string to its concept index, or -1 if no concept found. */
+function resolveConcept(str: string): number {
+  return conceptLookup.get(normalize(str)) ?? -1;
+}
+
+/**
+ * Expand tokens using TOKEN_ABBREVIATIONS.
+ * e.g. ["fname"] → ["first", "name"], ["addr"] → ["address"]
+ */
+function expandTokens(tokens: string[]): string[] {
+  const expanded: string[] = [];
+  for (const token of tokens) {
+    const expansion = TOKEN_ABBREVIATIONS[token];
+    if (expansion) {
+      expanded.push(...expansion);
+    } else {
+      expanded.push(token);
+    }
+  }
+  return expanded;
+}
+
+/**
+ * Check if two sets of tokens refer to the same concept
+ * by joining them and checking the concept lookup.
+ */
+function tokensMatchConcept(tokensA: string[], tokensB: string[]): boolean {
+  const joinA = tokensA.join("_");
+  const joinB = tokensB.join("_");
+  const conceptA = resolveConcept(joinA);
+  const conceptB = resolveConcept(joinB);
+  if (conceptA >= 0 && conceptA === conceptB) return true;
+
+  // Also try individual tokens if they are single-token concepts
+  for (const tA of tokensA) {
+    const cA = resolveConcept(tA);
+    if (cA < 0) continue;
+    for (const tB of tokensB) {
+      if (cA === resolveConcept(tB)) return true;
+    }
+  }
+  return false;
+}
+
 function getFieldSignature(field: FormFieldInfo): string {
   return [field.name, field.id, field.label, field.placeholder, field.autocomplete]
     .filter(Boolean)
@@ -96,41 +157,88 @@ function scoreCandidate(
   ].filter(Boolean);
 
   let bestScore = 0;
+  const lastSegment = dotKey.split(".").pop() || "";
+  const normDotKey = normalize(dotKey.replace(/\./g, "_"));
+  const keyTokensRaw = tokenize(dotKey.replace(/\./g, "_"));
+  const keyTokensExpanded = expandTokens(keyTokensRaw);
+
+  // Pre-compute concept for the profile key (last segment and full key)
+  const keyConceptFull = resolveConcept(normDotKey);
+  const keyConceptLast = resolveConcept(lastSegment);
 
   for (const candidate of candidates) {
     const normCandidate = normalize(candidate);
 
-    // Exact match on alias lookup
+    // 1. Exact match on alias lookup (form field → known profile key)
     const aliasMatch = aliasLookup.get(normCandidate);
     if (aliasMatch === dotKey) {
       bestScore = Math.max(bestScore, 0.95);
       continue;
     }
 
-    // Exact normalized match
-    const normDotKey = normalize(dotKey.replace(/\./g, "_"));
+    // 2. Exact normalized match
     if (normCandidate === normDotKey) {
       bestScore = Math.max(bestScore, 0.9);
       continue;
     }
 
-    // Last segment match (e.g. "city" matching "address.city")
-    const lastSegment = dotKey.split(".").pop() || "";
+    // 3. Last segment match (e.g. "city" matching "address.city")
     if (normCandidate === normalize(lastSegment)) {
       bestScore = Math.max(bestScore, 0.7);
       continue;
     }
 
-    // Token overlap scoring
-    const formTokens = tokenize(candidate);
-    const keyTokens = tokenize(dotKey.replace(/\./g, "_"));
-    if (formTokens.length > 0 && keyTokens.length > 0) {
-      const overlap = formTokens.filter((t) => keyTokens.includes(t)).length;
-      const tokenScore = overlap / Math.max(formTokens.length, keyTokens.length);
-      bestScore = Math.max(bestScore, tokenScore * 0.8);
+    // 4. Bidirectional concept matching — resolve BOTH form field and
+    //    profile key to canonical concepts via SYNONYM_GROUPS
+    const candidateConcept = resolveConcept(normCandidate);
+    if (candidateConcept >= 0 &&
+        (candidateConcept === keyConceptFull || candidateConcept === keyConceptLast)) {
+      bestScore = Math.max(bestScore, 0.88);
+      continue;
     }
 
-    // Fuzzy match on last segment
+    // 5. Token-level concept matching with abbreviation expansion
+    const formTokensRaw = tokenize(candidate);
+    const formTokensExpanded = expandTokens(formTokensRaw);
+
+    if (tokensMatchConcept(formTokensExpanded, keyTokensExpanded)) {
+      bestScore = Math.max(bestScore, 0.85);
+      continue;
+    }
+
+    // 6. Token overlap scoring (with expanded tokens)
+    if (formTokensExpanded.length > 0 && keyTokensExpanded.length > 0) {
+      const overlap = formTokensExpanded.filter((t) => keyTokensExpanded.includes(t)).length;
+      const tokenScore = overlap / Math.max(formTokensExpanded.length, keyTokensExpanded.length);
+      if (tokenScore > 0) {
+        bestScore = Math.max(bestScore, tokenScore * 0.8);
+      }
+    }
+
+    // 7. Per-token concept matching — check if individual tokens
+    //    from form and key resolve to the same concept
+    if (formTokensExpanded.length > 0 && keyTokensExpanded.length > 0) {
+      let conceptOverlap = 0;
+      const matchedKeyTokens = new Set<number>();
+      for (const ft of formTokensExpanded) {
+        const ftConcept = resolveConcept(ft);
+        if (ftConcept < 0) continue;
+        for (let ki = 0; ki < keyTokensExpanded.length; ki++) {
+          if (matchedKeyTokens.has(ki)) continue;
+          if (ftConcept === resolveConcept(keyTokensExpanded[ki])) {
+            conceptOverlap++;
+            matchedKeyTokens.add(ki);
+            break;
+          }
+        }
+      }
+      if (conceptOverlap > 0) {
+        const conceptScore = conceptOverlap / Math.max(formTokensExpanded.length, keyTokensExpanded.length);
+        bestScore = Math.max(bestScore, conceptScore * 0.75);
+      }
+    }
+
+    // 8. Fuzzy match on last segment
     const fScore = fuzzyScore(candidate, lastSegment);
     if (fScore > 0.7) {
       bestScore = Math.max(bestScore, fScore * 0.6);
