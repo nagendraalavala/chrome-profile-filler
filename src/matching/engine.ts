@@ -121,18 +121,25 @@ function expandTokens(tokens: string[]): string[] {
  * by joining them and checking the concept lookup.
  */
 function tokensMatchConcept(tokensA: string[], tokensB: string[]): boolean {
+  // Only match when the FULL joined token strings resolve to the same concept.
+  // Individual token-level matching (e.g. sharing just "address") is too loose
+  // and is already handled by steps 6/7 with proportional scoring.
   const joinA = tokensA.join("_");
   const joinB = tokensB.join("_");
   const conceptA = resolveConcept(joinA);
   const conceptB = resolveConcept(joinB);
   if (conceptA >= 0 && conceptA === conceptB) return true;
 
-  // Also try individual tokens if they are single-token concepts
-  for (const tA of tokensA) {
-    const cA = resolveConcept(tA);
-    if (cA < 0) continue;
-    for (const tB of tokensB) {
-      if (cA === resolveConcept(tB)) return true;
+  // For single-token sets, also check if the single token matches any
+  // single token in the other set (handles "phone" vs ["phone","number"])
+  if (tokensA.length === 1 || tokensB.length === 1) {
+    const single = tokensA.length === 1 ? tokensA : tokensB;
+    const multi = tokensA.length === 1 ? tokensB : tokensA;
+    const singleConcept = resolveConcept(single[0]);
+    if (singleConcept >= 0) {
+      // Check if multi's joined form resolves to the same concept
+      const multiJoined = multi.join("_");
+      if (singleConcept === resolveConcept(multiJoined)) return true;
     }
   }
   return false;
