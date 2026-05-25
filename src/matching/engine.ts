@@ -39,6 +39,15 @@ function fuzzyScore(a: string, b: string): number {
   return 1 - dist / maxLen;
 }
 
+/**
+ * Strip parenthetical content from labels to improve matching.
+ * e.g. "Full Name (as per passport)" → "Full Name"
+ *      "Cell Phone ( **No Google Voice # )" → "Cell Phone"
+ */
+function stripParenthetical(str: string): string {
+  return str.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function getGroupPrefix(dotKey: string): string {
   const parts = dotKey.split(".");
   return parts.length > 1 ? parts[0] : "";
@@ -155,13 +164,23 @@ function scoreCandidate(
   formField: FormFieldInfo,
   dotKey: string
 ): number {
-  const candidates = [
+  const rawCandidates = [
     formField.name,
     formField.id,
     formField.label,
     formField.placeholder,
     formField.autocomplete,
   ].filter(Boolean);
+
+  // Add stripped variants (without parenthetical text) for better matching
+  const candidates: string[] = [];
+  for (const c of rawCandidates) {
+    candidates.push(c);
+    const stripped = stripParenthetical(c);
+    if (stripped !== c && stripped.length >= 2) {
+      candidates.push(stripped);
+    }
+  }
 
   let bestScore = 0;
   const lastSegment = dotKey.split(".").pop() || "";
@@ -266,13 +285,21 @@ function tryCompositeMatch(
   formField: FormFieldInfo,
   profileFields: FlattenedField[]
 ): { value: string; rule: CompositeRule; confidence: number } | null {
-  const candidates = [
+  const rawCands = [
     formField.name,
     formField.id,
     formField.label,
     formField.placeholder,
     formField.autocomplete,
   ].filter(Boolean);
+  const candidates: string[] = [];
+  for (const c of rawCands) {
+    candidates.push(c);
+    const stripped = stripParenthetical(c);
+    if (stripped !== c && stripped.length >= 2) {
+      candidates.push(stripped);
+    }
+  }
 
   for (const rule of COMPOSITE_RULES) {
     // Check if any candidate matches a composite concept

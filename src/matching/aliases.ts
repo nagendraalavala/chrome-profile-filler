@@ -200,7 +200,7 @@ export const SYNONYM_GROUPS: string[][] = [
   ["preferred_name", "nickname", "nick", "alias", "display_name"],
 
   // Contact
-  ["email", "email_address", "emailaddress", "e_mail", "mail", "emailid", "email_id"],
+  ["email", "email_address", "emailaddress", "e_mail", "mail", "emailid", "email_id", "e_mail_id"],
   ["phone", "phone_number", "phonenumber", "telephone", "tel", "mobile",
    "cell", "cellphone", "cell_phone", "mobile_number", "contact_phone",
    "ph", "phn", "contact_number", "phone_no", "mob", "mobile_no"],
