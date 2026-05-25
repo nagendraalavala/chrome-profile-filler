@@ -120,6 +120,28 @@ export const FIELD_ALIASES: Record<string, string[]> = {
     "routing_number", "routing", "aba_number", "sort_code",
   ],
 
+  // Immigration / Visa
+  "visaStatus": [
+    "visa_status", "visa", "visa_type", "immigration_status",
+    "work_authorization", "work_auth", "authorization_status",
+  ],
+  "passportNumber": [
+    "passport_number", "pp_number", "passport_no", "pp_no",
+    "passport_num", "travel_document_number",
+  ],
+  "ssn": [
+    "ssn", "social_security_number", "social_security", "ss_number",
+    "last_4_ssn", "ssn_last_4", "last4ssn", "ssn4",
+  ],
+  "availability": [
+    "availability", "available", "start_date", "available_from",
+    "notice_period", "earliest_start", "join_date",
+  ],
+  "currentLocation": [
+    "current_location", "location", "current_city",
+    "residing_city", "based_in", "work_location",
+  ],
+
   // Documents / Attachments
   "documents.resume": [
     "resume", "cv", "curriculum_vitae", "resume_upload", "cv_upload",
@@ -178,7 +200,7 @@ export const SYNONYM_GROUPS: string[][] = [
   ["preferred_name", "nickname", "nick", "alias", "display_name"],
 
   // Contact
-  ["email", "email_address", "emailaddress", "e_mail", "mail", "emailid", "email_id"],
+  ["email", "email_address", "emailaddress", "e_mail", "mail", "emailid", "email_id", "e_mail_id"],
   ["phone", "phone_number", "phonenumber", "telephone", "tel", "mobile",
    "cell", "cellphone", "cell_phone", "mobile_number", "contact_phone",
    "ph", "phn", "contact_number", "phone_no", "mob", "mobile_no"],
@@ -239,15 +261,25 @@ export const SYNONYM_GROUPS: string[][] = [
   ["end_date", "enddate", "to_date", "finish_date", "leaving_date"],
 
   // Identity
-  ["ssn", "social_security_number", "social_security", "ss_number"],
+  ["ssn", "social_security_number", "social_security", "ss_number",
+   "last_4_ssn", "ssn_last_4", "last4ssn", "ssn4"],
   ["gender", "sex"],
   ["nationality", "citizenship"],
   ["marital_status", "marital", "relationship_status"],
 
+  // Immigration / Visa
+  ["visa_status", "visa", "visa_type", "immigration_status",
+   "work_authorization", "work_auth"],
+  ["passport_number", "pp_number", "passport_no", "pp_no",
+   "passport_num", "travel_document_number"],
+  ["current_location", "location", "current_city", "residing_city",
+   "based_in", "work_location"],
+
   // Misc
   ["message", "comments", "notes", "additional_info", "remarks",
    "additional_comments", "other_info"],
-  ["availability", "available", "notice_period", "start_availability"],
+  ["availability", "available", "notice_period", "start_availability",
+   "available_from", "earliest_start"],
   ["referral", "referred_by", "referrer", "reference", "how_did_you_hear"],
 ];
 
@@ -293,7 +325,70 @@ export const TOKEN_ABBREVIATIONS: Record<string, string[]> = {
   "no": ["number"],
   "yr": ["year"],
   "yrs": ["years"],
+  "pp": ["passport"],
+  "id": ["identification"],
+  "auth": ["authorization"],
 };
+
+/**
+ * Composite field rules for combining/splitting profile fields.
+ * When a form asks for "full name" but profile has "firstName" + "lastName",
+ * the engine combines them. When profile has "fullName" but form asks for
+ * "firstName" and "lastName", the engine splits it.
+ */
+export interface CompositeRule {
+  /** Concept names this rule matches (form field tokens) */
+  concepts: string[];
+  /** Profile keys to combine (in order), with separator */
+  sourceKeys: string[];
+  /** How to join the values */
+  separator: string;
+  /** For splitting: regex to extract parts from a composite value */
+  splitPattern?: RegExp;
+  /** For splitting: which target keys get which capture groups */
+  splitTargets?: string[];
+}
+
+export const COMPOSITE_RULES: CompositeRule[] = [
+  // full_name = first_name + last_name
+  {
+    concepts: ["full_name", "name", "fullname", "your_name", "applicant_name", "candidate_name", "display_name"],
+    sourceKeys: ["firstName", "lastName"],
+    separator: " ",
+    splitPattern: /^(\S+)\s+(.+)$/,
+    splitTargets: ["firstName", "lastName"],
+  },
+  // full_name with middle = first + middle + last
+  {
+    concepts: ["full_name_middle"],
+    sourceKeys: ["firstName", "middleName", "lastName"],
+    separator: " ",
+  },
+  // full_address = line1, city, state zip
+  {
+    concepts: ["full_address", "complete_address", "mailing_address_full"],
+    sourceKeys: ["address.line1", "address.city", "address.state", "address.zip"],
+    separator: ", ",
+  },
+  // city_state = city, state
+  {
+    concepts: ["city_state", "city_and_state", "location"],
+    sourceKeys: ["address.city", "address.state"],
+    separator: ", ",
+  },
+  // city_state_zip = city, state zip
+  {
+    concepts: ["city_state_zip"],
+    sourceKeys: ["address.city", "address.state", "address.zip"],
+    separator: ", ",
+  },
+  // phone with country code
+  {
+    concepts: ["full_phone", "phone_with_code", "international_phone"],
+    sourceKeys: ["phoneCountryCode", "phone"],
+    separator: "",
+  },
+];
 
 /** Section heading keywords that boost scores for grouped fields. */
 export const SECTION_BOOST_KEYWORDS: Record<string, string[]> = {

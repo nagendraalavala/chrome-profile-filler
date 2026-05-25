@@ -31,6 +31,8 @@ interface SerializedFormField {
   isContentEditable?: boolean;
   isFileInput?: boolean;
   acceptTypes?: string;
+  isTemplateField?: boolean;
+  templateLabel?: string;
 }
 
 export default function App() {
@@ -204,6 +206,8 @@ export default function App() {
         isContentEditable: f.isContentEditable,
         isFileInput: f.isFileInput,
         acceptTypes: f.acceptTypes,
+        isTemplateField: f.isTemplateField,
+        templateLabel: f.templateLabel,
       }));
 
       const currentFlatFields = activeProfile
@@ -276,7 +280,8 @@ export default function App() {
           const fieldIndex = scannedFields.findIndex(
             (sf) =>
               (sf.name && sf.name === m.formFieldName) ||
-              (sf.id && sf.id === m.formFieldName)
+              (sf.id && sf.id === m.formFieldName) ||
+              (sf.isTemplateField && sf.templateLabel === m.formFieldLabel)
           );
           return {
             index: fieldIndex,
@@ -425,7 +430,7 @@ export default function App() {
           className={`tab-btn ${activeTab === "preview" ? "active" : ""}`}
           onClick={() => setActiveTab("preview")}
         >
-          Preview{matches.length > 0 ? ` (${matches.length})` : ""}
+          Preview{matches.length > 0 ? ` (${matches.filter((m) => m.selected).length}/${matches.length})` : ""}
         </button>
         <button
           className={`tab-btn ${activeTab === "import" ? "active" : ""}`}

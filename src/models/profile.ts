@@ -63,6 +63,8 @@ export interface FormFieldInfo {
   isContentEditable?: boolean;
   isFileInput?: boolean;
   acceptTypes?: string;
+  isTemplateField?: boolean;
+  templateLabel?: string;
 }
 
 export type MessageAction =

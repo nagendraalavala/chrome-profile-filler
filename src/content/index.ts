@@ -85,12 +85,17 @@ function findSectionHeading(element: HTMLElement): string {
 
 function isVisible(element: HTMLElement): boolean {
   const style = window.getComputedStyle(element);
-  return (
-    style.display !== "none" &&
-    style.visibility !== "hidden" &&
-    style.opacity !== "0" &&
-    element.offsetParent !== null
-  );
+  if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+    return false;
+  }
+  // offsetParent is null for position:fixed elements and their ancestors,
+  // which is common in Gmail, Outlook, and other SPA email clients.
+  // Fall back to bounding rect check for those cases.
+  if (element.offsetParent === null) {
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+  return true;
 }
 
 function isEditableElement(el: HTMLElement): boolean {
@@ -110,6 +115,70 @@ function getEditablePlaceholder(el: HTMLElement): string {
     el.getAttribute("placeholder") ||
     ""
   );
+}
+
+// ---------------------------------------------------------------------------
+// Template scanning: detect "Label:" patterns in contenteditable text
+// (e.g. Gmail replies with "Full Name:", "Current Location:", etc.)
+// ---------------------------------------------------------------------------
+
+// Pattern 1: Line ends with colon, optionally preceded by stars (e.g. "Full Name:", "LinkedIn***:")
+const TEMPLATE_COLON_PATTERN = /^(.+?)\s*[*]*:\s*$/;
+// Pattern 2: Line ends with asterisk(s) only, no colon (e.g. "Visa Status*", "PP Number*")
+const TEMPLATE_STAR_PATTERN = /^([A-Za-z].+?)\s*\*+\s*$/;
+
+function extractTemplateLabels(element: HTMLElement): string[] {
+  const text = element.innerText || element.textContent || "";
+  const lines = text.split("\n");
+  const labels: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    // Skip lines that are too long (likely paragraph text, not labels)
+    if (trimmed.length > 80) continue;
+    // Skip lines that look like email signatures or URLs
+    if (trimmed.startsWith("http") || trimmed.startsWith("www.")) continue;
+    if (trimmed.includes("@") && !trimmed.endsWith(":")) continue;
+
+    let match = trimmed.match(TEMPLATE_COLON_PATTERN);
+    if (match) {
+      const label = match[1].trim();
+      // Ensure the label starts with a letter and has meaningful content
+      if (label.length >= 2 && /^[A-Za-z]/.test(label)) {
+        labels.push(label);
+      }
+      continue;
+    }
+
+    match = trimmed.match(TEMPLATE_STAR_PATTERN);
+    if (match) {
+      const label = match[1].trim();
+      if (label.length >= 2) {
+        labels.push(label);
+      }
+    }
+  }
+  return labels;
+}
+
+function scanTemplateFields(element: HTMLElement): FormFieldInfo[] {
+  const labels = extractTemplateLabels(element);
+  if (labels.length < 2) return []; // Need at least 2 labels to be a template
+
+  return labels.map((label) => ({
+    element,
+    name: label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
+    id: "",
+    label,
+    type: "template-field",
+    placeholder: "",
+    sectionHeading: "",
+    autocomplete: "",
+    isContentEditable: true,
+    isTemplateField: true,
+    templateLabel: label,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +206,13 @@ function scanContentEditableFields(): FormFieldInfo[] {
     if (rect.height < 20 || rect.width < 40) return;
 
     seen.add(el);
+
+    // Check if this contenteditable contains template patterns (e.g. email reply with "Label:" lines)
+    const templateFields = scanTemplateFields(el);
+    if (templateFields.length > 0) {
+      fields.push(...templateFields);
+      return;
+    }
 
     fields.push({
       element: el,
@@ -260,16 +336,20 @@ function scanIframeFields(): FormFieldInfo[] {
 
 function scanFileInputs(): FormFieldInfo[] {
   const fields: FormFieldInfo[] = [];
+  // Find all file inputs including hidden ones (Gmail uses hidden file inputs for attachments)
   const fileInputs = document.querySelectorAll<HTMLInputElement>("input[type='file']");
 
   fileInputs.forEach((el) => {
-    if (!isVisible(el)) return;
+    // For Gmail/Outlook, include hidden file inputs near compose areas
+    const isGmailFileInput = el.closest("[role='dialog']") || el.closest(".compose") ||
+                             el.closest("[data-action='composenew']") || el.closest(".dC");
+    if (!isVisible(el) && !isGmailFileInput) return;
 
     fields.push({
       element: el,
-      name: el.getAttribute("name") || "",
+      name: el.getAttribute("name") || "attachment",
       id: el.getAttribute("id") || "",
-      label: findLabel(el),
+      label: findLabel(el) || "Attachment",
       type: "file",
       placeholder: "",
       sectionHeading: findSectionHeading(el),
@@ -333,6 +413,8 @@ function serializeFormFields(fields: FormFieldInfo[]): Array<Omit<FormFieldInfo,
     isContentEditable: f.isContentEditable,
     isFileInput: f.isFileInput,
     acceptTypes: f.acceptTypes,
+    isTemplateField: f.isTemplateField,
+    templateLabel: f.templateLabel,
   }));
 }
 
@@ -371,6 +453,48 @@ function fillFileInput(
   }
 }
 
+/**
+ * Drop a file onto an element using drag-and-drop events.
+ * This works for Gmail/Outlook compose areas where hidden file inputs
+ * may not accept direct .files assignment.
+ */
+function dropFileOnElement(
+  element: HTMLElement,
+  dataUrl: string,
+  fileName: string
+): boolean {
+  try {
+    const file = dataUrlToFile(dataUrl, fileName);
+    const dt = new DataTransfer();
+    dt.items.add(file);
+
+    const dragEnterEvent = new DragEvent("dragenter", {
+      bubbles: true,
+      cancelable: true,
+      dataTransfer: dt,
+    });
+    element.dispatchEvent(dragEnterEvent);
+
+    const dragOverEvent = new DragEvent("dragover", {
+      bubbles: true,
+      cancelable: true,
+      dataTransfer: dt,
+    });
+    element.dispatchEvent(dragOverEvent);
+
+    const dropEvent = new DragEvent("drop", {
+      bubbles: true,
+      cancelable: true,
+      dataTransfer: dt,
+    });
+    element.dispatchEvent(dropEvent);
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function fillContentEditable(element: HTMLElement, value: string): void {
   element.focus();
   element.textContent = value;
@@ -387,6 +511,85 @@ function fillContentEditable(element: HTMLElement, value: string): void {
   }));
   element.dispatchEvent(new Event("change", { bubbles: true }));
   element.dispatchEvent(new Event("blur", { bubbles: true }));
+}
+
+/**
+ * Fill a template field inside a contenteditable element.
+ * Finds the line with "Label:" or "Label*" and appends the value after it.
+ */
+function fillTemplateField(element: HTMLElement, templateLabel: string, value: string): boolean {
+  element.focus();
+
+  // Work with innerHTML to preserve formatting
+  const html = element.innerHTML;
+  // Escape the label for use in regex
+  const escapedLabel = templateLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  // Try multiple patterns to find the label in HTML:
+  // 1. Label followed by optional stars then colon: "Full Name:", "LinkedIn***:"
+  // 2. Label followed by stars only: "Visa Status*", "PP Number*"
+  const patterns = [
+    new RegExp(`(${escapedLabel}[\\s]*[*]*[:\\s]*)([^<\\n]*)`, "i"),
+    new RegExp(`(${escapedLabel}[\\s]*\\*+[\\s]*)([^<\\n]*)`, "i"),
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match) {
+      const newHtml = html.replace(pattern, `$1${value}`);
+      element.innerHTML = newHtml;
+
+      element.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        cancelable: true,
+        inputType: "insertText",
+        data: value,
+      }));
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    }
+  }
+
+  // Fallback: try with textContent line-by-line
+  const text = element.innerText || element.textContent || "";
+  const lines = text.split("\n");
+  const labelLower = templateLabel.toLowerCase();
+  let found = false;
+
+  const newLines = lines.map((line) => {
+    if (found) return line;
+    const trimmed = line.trim().toLowerCase();
+    // Check if this line contains the label
+    if (trimmed.includes(labelLower)) {
+      // Find the last colon or the last sequence of stars
+      const lastColonIdx = line.lastIndexOf(":");
+      if (lastColonIdx >= 0) {
+        found = true;
+        return line.substring(0, lastColonIdx + 1) + " " + value;
+      }
+      // Find trailing stars
+      const starMatch = line.match(/^(.*\*+)\s*$/);
+      if (starMatch) {
+        found = true;
+        return starMatch[1] + " " + value;
+      }
+    }
+    return line;
+  });
+
+  if (found) {
+    element.innerText = newLines.join("\n");
+    element.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      cancelable: true,
+      inputType: "insertText",
+      data: value,
+    }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }
+
+  return false;
 }
 
 function fillField(
@@ -443,8 +646,23 @@ chrome.runtime.onMessage.addListener(
       for (const item of fillData) {
         if (item.index >= 0 && item.index < lastScannedFields.length) {
           const field = lastScannedFields[item.index];
-          if (item.isAttachment && item.dataUrl && item.fileName && field.element instanceof HTMLInputElement) {
-            if (fillFileInput(field.element, item.dataUrl, item.fileName)) {
+          if (item.isAttachment && item.dataUrl && item.fileName) {
+            if (field.element instanceof HTMLInputElement) {
+              // Standard file input
+              if (fillFileInput(field.element, item.dataUrl, item.fileName)) {
+                filledCount++;
+              }
+            } else {
+              // Try drag-and-drop on compose area (Gmail/Outlook)
+              const composeArea = field.element.closest("[contenteditable='true']") ||
+                                  document.querySelector("[role='textbox'][contenteditable='true']") ||
+                                  field.element;
+              if (dropFileOnElement(composeArea as HTMLElement, item.dataUrl, item.fileName)) {
+                filledCount++;
+              }
+            }
+          } else if (field.isTemplateField && field.templateLabel) {
+            if (fillTemplateField(field.element, field.templateLabel, item.value)) {
               filledCount++;
             }
           } else {

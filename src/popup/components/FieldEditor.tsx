@@ -17,11 +17,52 @@ function FieldRow({
   onUpdate: (updated: ProfileField) => void;
   onDelete: () => void;
 }) {
+  const [isEditingKey, setIsEditingKey] = useState(false);
+  const [keyValue, setKeyValue] = useState(field.label);
+
+  const handleKeyEdit = () => {
+    const trimmed = keyValue.trim();
+    if (trimmed) {
+      const newKey = trimmed
+        .replace(/\s+/g, "_")
+        .replace(/^./, (c) => c.toLowerCase());
+      onUpdate({ ...field, label: trimmed, key: newKey });
+    } else {
+      setKeyValue(field.label);
+    }
+    setIsEditingKey(false);
+  };
+
   return (
     <div className="field-row">
-      <span className="field-label" title={field.key}>
-        {field.label}
-      </span>
+      {isEditingKey ? (
+        <input
+          className="field-key-input"
+          type="text"
+          value={keyValue}
+          onChange={(e) => setKeyValue(e.target.value)}
+          onBlur={handleKeyEdit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleKeyEdit();
+            if (e.key === "Escape") {
+              setKeyValue(field.label);
+              setIsEditingKey(false);
+            }
+          }}
+          autoFocus
+        />
+      ) : (
+        <span
+          className="field-label editable"
+          title={`Key: ${field.key} (click to rename)`}
+          onClick={() => {
+            setKeyValue(field.label);
+            setIsEditingKey(true);
+          }}
+        >
+          {field.label}
+        </span>
+      )}
       <input
         className="field-input"
         type="text"
