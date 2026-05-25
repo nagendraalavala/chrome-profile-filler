@@ -81,7 +81,15 @@ export default function PreviewTable({
                 ))}
               </select>
             </td>
-            <td>{match.value || "—"}</td>
+            <td>
+              {match.isAttachment && match.attachment ? (
+                <span className="attachment-badge" title={match.attachment.fileName}>
+                  {match.attachment.fileName}
+                </span>
+              ) : (
+                match.value || "—"
+              )}
+            </td>
             <td>
               <span
                 className={`confidence-badge ${confidenceClass(match.confidence)}`}
