@@ -425,7 +425,7 @@ export default function App() {
           className={`tab-btn ${activeTab === "preview" ? "active" : ""}`}
           onClick={() => setActiveTab("preview")}
         >
-          Preview{matches.length > 0 ? ` (${matches.length})` : ""}
+          Preview{matches.length > 0 ? ` (${matches.filter((m) => m.selected).length}/${matches.length})` : ""}
         </button>
         <button
           className={`tab-btn ${activeTab === "import" ? "active" : ""}`}

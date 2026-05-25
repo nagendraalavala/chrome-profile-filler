@@ -85,12 +85,17 @@ function findSectionHeading(element: HTMLElement): string {
 
 function isVisible(element: HTMLElement): boolean {
   const style = window.getComputedStyle(element);
-  return (
-    style.display !== "none" &&
-    style.visibility !== "hidden" &&
-    style.opacity !== "0" &&
-    element.offsetParent !== null
-  );
+  if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+    return false;
+  }
+  // offsetParent is null for position:fixed elements and their ancestors,
+  // which is common in Gmail, Outlook, and other SPA email clients.
+  // Fall back to bounding rect check for those cases.
+  if (element.offsetParent === null) {
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+  return true;
 }
 
 function isEditableElement(el: HTMLElement): boolean {
