@@ -1,5 +1,5 @@
 import { FlattenedField, MatchResult, FormFieldInfo, SiteMapping } from "../models/profile";
-import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS, SYNONYM_GROUPS, TOKEN_ABBREVIATIONS } from "./aliases";
+import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS, SYNONYM_GROUPS, TOKEN_ABBREVIATIONS, COMPOSITE_RULES, CompositeRule } from "./aliases";
 
 function normalize(str: string): string {
   return str
@@ -258,6 +258,171 @@ function scoreCandidate(
   return Math.min(bestScore, 1);
 }
 
+/**
+ * Try to match a form field against composite rules.
+ * Returns the combined value and a virtual key if a composite match is found.
+ */
+function tryCompositeMatch(
+  formField: FormFieldInfo,
+  profileFields: FlattenedField[]
+): { value: string; rule: CompositeRule; confidence: number } | null {
+  const candidates = [
+    formField.name,
+    formField.id,
+    formField.label,
+    formField.placeholder,
+    formField.autocomplete,
+  ].filter(Boolean);
+
+  for (const rule of COMPOSITE_RULES) {
+    // Check if any candidate matches a composite concept
+    let matched = false;
+    for (const candidate of candidates) {
+      const normCandidate = normalize(candidate);
+      const candidateTokens = expandTokens(tokenize(candidate));
+
+      for (const concept of rule.concepts) {
+        const normConcept = normalize(concept);
+        // Direct match
+        if (normCandidate === normConcept) {
+          matched = true;
+          break;
+        }
+        // Token match (e.g. "full_name" matches "fullName")
+        const conceptTokens = expandTokens(tokenize(concept));
+        if (candidateTokens.length > 0 && conceptTokens.length > 0) {
+          const overlap = candidateTokens.filter((t) => conceptTokens.includes(t)).length;
+          if (overlap === conceptTokens.length && overlap === candidateTokens.length) {
+            matched = true;
+            break;
+          }
+        }
+        // Concept-based match
+        const candidateConcept = resolveConcept(normCandidate);
+        const ruleConcept = resolveConcept(normConcept);
+        if (candidateConcept >= 0 && candidateConcept === ruleConcept) {
+          matched = true;
+          break;
+        }
+      }
+      if (matched) break;
+    }
+
+    if (!matched) continue;
+
+    // Check if we have all the source keys in the profile
+    const values: string[] = [];
+    let allFound = true;
+    for (const sourceKey of rule.sourceKeys) {
+      // Try exact match first, then concept-based match
+      let found = profileFields.find((f) => f.dotKey === sourceKey);
+      if (!found) {
+        // Try matching by last segment or concept
+        found = profileFields.find((f) => {
+          const lastSeg = f.dotKey.split(".").pop() || "";
+          return normalize(lastSeg) === normalize(sourceKey) ||
+                 normalize(f.dotKey) === normalize(sourceKey);
+        });
+      }
+      if (found && found.value) {
+        values.push(found.value);
+      } else {
+        allFound = false;
+        break;
+      }
+    }
+
+    if (allFound && values.length > 0) {
+      return {
+        value: values.join(rule.separator),
+        rule,
+        confidence: 0.85,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * For splitting: check if any unmatched form fields can be satisfied
+ * by splitting a composite profile field value.
+ */
+function trySplitMatch(
+  formField: FormFieldInfo,
+  profileFields: FlattenedField[]
+): { value: string; sourceKey: string; confidence: number } | null {
+  for (const rule of COMPOSITE_RULES) {
+    if (!rule.splitPattern || !rule.splitTargets) continue;
+
+    // Check if this form field matches one of the split targets
+    const candidates = [
+      formField.name,
+      formField.id,
+      formField.label,
+      formField.placeholder,
+      formField.autocomplete,
+    ].filter(Boolean);
+
+    let targetIndex = -1;
+    for (const candidate of candidates) {
+      const normCandidate = normalize(candidate);
+      const candidateTokens = expandTokens(tokenize(candidate));
+
+      for (let i = 0; i < rule.splitTargets.length; i++) {
+        const target = rule.splitTargets[i];
+        const normTarget = normalize(target);
+        const targetTokens = expandTokens(tokenize(target));
+
+        if (normCandidate === normTarget) {
+          targetIndex = i;
+          break;
+        }
+        // Token-level match
+        if (candidateTokens.length > 0 && targetTokens.length > 0) {
+          const overlap = candidateTokens.filter((t) => targetTokens.includes(t)).length;
+          if (overlap === targetTokens.length && overlap === candidateTokens.length) {
+            targetIndex = i;
+            break;
+          }
+        }
+        // Concept match
+        const candidateConcept = resolveConcept(normCandidate);
+        const targetConcept = resolveConcept(normTarget);
+        if (candidateConcept >= 0 && candidateConcept === targetConcept) {
+          targetIndex = i;
+          break;
+        }
+      }
+      if (targetIndex >= 0) break;
+    }
+
+    if (targetIndex < 0) continue;
+
+    // Find a composite value in profile fields that matches any of the rule concepts
+    for (const concept of rule.concepts) {
+      const compositeField = profileFields.find((f) => {
+        const normKey = normalize(f.dotKey);
+        return normKey === normalize(concept) ||
+               resolveConcept(normKey) === resolveConcept(concept);
+      });
+
+      if (compositeField && compositeField.value) {
+        const match = compositeField.value.match(rule.splitPattern);
+        if (match && match[targetIndex + 1]) {
+          return {
+            value: match[targetIndex + 1],
+            sourceKey: compositeField.dotKey,
+            confidence: 0.82,
+          };
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 export function matchFields(
   formFields: FormFieldInfo[],
   profileFields: FlattenedField[],
@@ -299,7 +464,7 @@ export function matchFields(
       }
     }
 
-    // 2-5. Score all profile fields and pick the best
+    // 2-8. Score all profile fields and pick the best
     let bestMatch: FlattenedField | null = null;
     let bestScore = 0;
 
@@ -324,18 +489,54 @@ export function matchFields(
         isAttachment: bestMatch.isAttachment,
         attachment: bestMatch.attachment,
       });
-    } else {
-      results.push({
-        formFieldName: formField.name || formField.id,
-        formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
-        formFieldElement: signature,
-        profileKey: "",
-        value: "",
-        confidence: 0,
-        selected: false,
-        group: undefined,
-      });
+      continue;
     }
+
+    // 9. Try composite matching (combine multiple profile fields)
+    if (!isFileField) {
+      const composite = tryCompositeMatch(formField, regularFields);
+      if (composite) {
+        results.push({
+          formFieldName: formField.name || formField.id,
+          formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
+          formFieldElement: signature,
+          profileKey: composite.rule.sourceKeys.join(" + "),
+          value: composite.value,
+          confidence: composite.confidence,
+          selected: true,
+          group: undefined,
+        });
+        continue;
+      }
+
+      // 10. Try split matching (split a composite profile value)
+      const split = trySplitMatch(formField, regularFields);
+      if (split) {
+        results.push({
+          formFieldName: formField.name || formField.id,
+          formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
+          formFieldElement: signature,
+          profileKey: split.sourceKey + " (split)",
+          value: split.value,
+          confidence: split.confidence,
+          selected: true,
+          group: undefined,
+        });
+        continue;
+      }
+    }
+
+    // No match found
+    results.push({
+      formFieldName: formField.name || formField.id,
+      formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
+      formFieldElement: signature,
+      profileKey: "",
+      value: "",
+      confidence: 0,
+      selected: false,
+      group: undefined,
+    });
   }
 
   return results;

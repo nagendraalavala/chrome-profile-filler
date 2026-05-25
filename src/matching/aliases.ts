@@ -295,6 +295,66 @@ export const TOKEN_ABBREVIATIONS: Record<string, string[]> = {
   "yrs": ["years"],
 };
 
+/**
+ * Composite field rules for combining/splitting profile fields.
+ * When a form asks for "full name" but profile has "firstName" + "lastName",
+ * the engine combines them. When profile has "fullName" but form asks for
+ * "firstName" and "lastName", the engine splits it.
+ */
+export interface CompositeRule {
+  /** Concept names this rule matches (form field tokens) */
+  concepts: string[];
+  /** Profile keys to combine (in order), with separator */
+  sourceKeys: string[];
+  /** How to join the values */
+  separator: string;
+  /** For splitting: regex to extract parts from a composite value */
+  splitPattern?: RegExp;
+  /** For splitting: which target keys get which capture groups */
+  splitTargets?: string[];
+}
+
+export const COMPOSITE_RULES: CompositeRule[] = [
+  // full_name = first_name + last_name
+  {
+    concepts: ["full_name", "name", "fullname", "your_name", "applicant_name", "candidate_name", "display_name"],
+    sourceKeys: ["firstName", "lastName"],
+    separator: " ",
+    splitPattern: /^(\S+)\s+(.+)$/,
+    splitTargets: ["firstName", "lastName"],
+  },
+  // full_name with middle = first + middle + last
+  {
+    concepts: ["full_name_middle"],
+    sourceKeys: ["firstName", "middleName", "lastName"],
+    separator: " ",
+  },
+  // full_address = line1, city, state zip
+  {
+    concepts: ["full_address", "complete_address", "mailing_address_full"],
+    sourceKeys: ["address.line1", "address.city", "address.state", "address.zip"],
+    separator: ", ",
+  },
+  // city_state = city, state
+  {
+    concepts: ["city_state", "city_and_state", "location"],
+    sourceKeys: ["address.city", "address.state"],
+    separator: ", ",
+  },
+  // city_state_zip = city, state zip
+  {
+    concepts: ["city_state_zip"],
+    sourceKeys: ["address.city", "address.state", "address.zip"],
+    separator: ", ",
+  },
+  // phone with country code
+  {
+    concepts: ["full_phone", "phone_with_code", "international_phone"],
+    sourceKeys: ["phoneCountryCode", "phone"],
+    separator: "",
+  },
+];
+
 /** Section heading keywords that boost scores for grouped fields. */
 export const SECTION_BOOST_KEYWORDS: Record<string, string[]> = {
   "address": [
