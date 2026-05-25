@@ -288,15 +288,16 @@ function tryCompositeMatch(
           matched = true;
           break;
         }
-        // Token match (e.g. "full_name" matches "fullName")
-        const conceptTokens = expandTokens(tokenize(concept));
-        if (candidateTokens.length > 0 && conceptTokens.length > 0) {
-          const overlap = candidateTokens.filter((t) => conceptTokens.includes(t)).length;
-          if (overlap === conceptTokens.length && overlap === candidateTokens.length) {
-            matched = true;
-            break;
+          // Token match (e.g. "full_name" matches "fullName")
+          // Also handles "full_name_as_per_passport" matching "full_name" (candidate contains all concept tokens)
+          const conceptTokens = expandTokens(tokenize(concept));
+          if (candidateTokens.length > 0 && conceptTokens.length > 0) {
+            const overlap = candidateTokens.filter((t) => conceptTokens.includes(t)).length;
+            if (overlap === conceptTokens.length) {
+              matched = true;
+              break;
+            }
           }
-        }
         // Concept-based match
         const candidateConcept = resolveConcept(normCandidate);
         const ruleConcept = resolveConcept(normConcept);

@@ -120,6 +120,28 @@ export const FIELD_ALIASES: Record<string, string[]> = {
     "routing_number", "routing", "aba_number", "sort_code",
   ],
 
+  // Immigration / Visa
+  "visaStatus": [
+    "visa_status", "visa", "visa_type", "immigration_status",
+    "work_authorization", "work_auth", "authorization_status",
+  ],
+  "passportNumber": [
+    "passport_number", "pp_number", "passport_no", "pp_no",
+    "passport_num", "travel_document_number",
+  ],
+  "ssn": [
+    "ssn", "social_security_number", "social_security", "ss_number",
+    "last_4_ssn", "ssn_last_4", "last4ssn", "ssn4",
+  ],
+  "availability": [
+    "availability", "available", "start_date", "available_from",
+    "notice_period", "earliest_start", "join_date",
+  ],
+  "currentLocation": [
+    "current_location", "location", "current_city",
+    "residing_city", "based_in", "work_location",
+  ],
+
   // Documents / Attachments
   "documents.resume": [
     "resume", "cv", "curriculum_vitae", "resume_upload", "cv_upload",
@@ -239,15 +261,25 @@ export const SYNONYM_GROUPS: string[][] = [
   ["end_date", "enddate", "to_date", "finish_date", "leaving_date"],
 
   // Identity
-  ["ssn", "social_security_number", "social_security", "ss_number"],
+  ["ssn", "social_security_number", "social_security", "ss_number",
+   "last_4_ssn", "ssn_last_4", "last4ssn", "ssn4"],
   ["gender", "sex"],
   ["nationality", "citizenship"],
   ["marital_status", "marital", "relationship_status"],
 
+  // Immigration / Visa
+  ["visa_status", "visa", "visa_type", "immigration_status",
+   "work_authorization", "work_auth"],
+  ["passport_number", "pp_number", "passport_no", "pp_no",
+   "passport_num", "travel_document_number"],
+  ["current_location", "location", "current_city", "residing_city",
+   "based_in", "work_location"],
+
   // Misc
   ["message", "comments", "notes", "additional_info", "remarks",
    "additional_comments", "other_info"],
-  ["availability", "available", "notice_period", "start_availability"],
+  ["availability", "available", "notice_period", "start_availability",
+   "available_from", "earliest_start"],
   ["referral", "referred_by", "referrer", "reference", "how_did_you_hear"],
 ];
 
@@ -293,6 +325,9 @@ export const TOKEN_ABBREVIATIONS: Record<string, string[]> = {
   "no": ["number"],
   "yr": ["year"],
   "yrs": ["years"],
+  "pp": ["passport"],
+  "id": ["identification"],
+  "auth": ["authorization"],
 };
 
 /**
