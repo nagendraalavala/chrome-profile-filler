@@ -3,7 +3,7 @@
   "name": "Profile Filler",
   "version": "1.0.0",
   "description": "Auto-fill forms with grouped/nested profile data. Supports addresses, work experience, education, social links, and more.",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "permissions": ["storage", "activeTab", "scripting", "downloads"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {

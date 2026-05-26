@@ -655,29 +655,38 @@ chrome.runtime.onMessage.addListener(
             }
 
             if (!attached) {
-              // Find ANY file input in the compose dialog/area (Gmail hides them)
+              // Find ANY visible file input in the compose dialog
               const composeDialog = field.element.closest("[role='dialog']") ||
                                     field.element.closest(".compose") ||
-                                    field.element.closest("[data-action='composenew']") ||
                                     document.querySelector("[role='dialog']");
-              const hiddenInputs = composeDialog
-                ? composeDialog.querySelectorAll<HTMLInputElement>("input[type='file']")
-                : document.querySelectorAll<HTMLInputElement>("input[type='file']");
-
-              for (const fileInput of hiddenInputs) {
-                if (fillFileInput(fileInput, item.dataUrl, item.fileName)) {
-                  attached = true;
-                  break;
+              if (composeDialog) {
+                const hiddenInputs = composeDialog.querySelectorAll<HTMLInputElement>("input[type='file']");
+                for (const fileInput of hiddenInputs) {
+                  if (fillFileInput(fileInput, item.dataUrl, item.fileName)) {
+                    attached = true;
+                    break;
+                  }
                 }
               }
             }
 
             if (!attached) {
-              // Fallback: drag-and-drop on compose area
-              const composeArea = field.element.closest("[contenteditable='true']") ||
-                                  document.querySelector("[role='textbox'][contenteditable='true']") ||
-                                  field.element;
-              attached = dropFileOnElement(composeArea as HTMLElement, item.dataUrl, item.fileName);
+              // Download the file so user can manually attach it
+              // This is the reliable fallback for Gmail/Outlook where
+              // programmatic attachment is blocked by browser security
+              try {
+                chrome.runtime.sendMessage({
+                  action: "DOWNLOAD_ATTACHMENT",
+                  data: { dataUrl: item.dataUrl, fileName: item.fileName },
+                });
+                attached = true;
+              } catch {
+                // If download fails, try drag-and-drop as last resort
+                const composeArea = field.element.closest("[contenteditable='true']") ||
+                                    document.querySelector("[role='textbox'][contenteditable='true']") ||
+                                    field.element;
+                attached = dropFileOnElement(composeArea as HTMLElement, item.dataUrl, item.fileName);
+              }
             }
 
             if (attached) {
