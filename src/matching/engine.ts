@@ -476,7 +476,7 @@ export function matchFields(
     if (savedMapping) {
       const matched = profileFields.find((p) => p.dotKey === savedMapping.profileKey);
       if (matched) {
-        const hasValue = !!(matched.value && matched.value.trim());
+        const hasValue = !!(matched.value && matched.value.trim()) || !!(matched.isAttachment && matched.attachment?.dataUrl);
         results.push({
           formFieldName: formField.name || formField.id,
           formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
@@ -506,7 +506,7 @@ export function matchFields(
     }
 
     if (bestMatch && bestScore >= 0.3) {
-      const hasValue = !!(bestMatch.value && bestMatch.value.trim());
+      const hasValue = !!(bestMatch.value && bestMatch.value.trim()) || !!(bestMatch.isAttachment && bestMatch.attachment?.dataUrl);
       results.push({
         formFieldName: formField.name || formField.id,
         formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,

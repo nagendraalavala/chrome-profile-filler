@@ -647,19 +647,41 @@ chrome.runtime.onMessage.addListener(
         if (item.index >= 0 && item.index < lastScannedFields.length) {
           const field = lastScannedFields[item.index];
           if (item.isAttachment && item.dataUrl && item.fileName) {
-            if (field.element instanceof HTMLInputElement) {
-              // Standard file input
-              if (fillFileInput(field.element, item.dataUrl, item.fileName)) {
-                filledCount++;
+            let attached = false;
+
+            if (field.element instanceof HTMLInputElement && field.element.type === "file") {
+              // Standard file input — set .files directly
+              attached = fillFileInput(field.element, item.dataUrl, item.fileName);
+            }
+
+            if (!attached) {
+              // Find ANY file input in the compose dialog/area (Gmail hides them)
+              const composeDialog = field.element.closest("[role='dialog']") ||
+                                    field.element.closest(".compose") ||
+                                    field.element.closest("[data-action='composenew']") ||
+                                    document.querySelector("[role='dialog']");
+              const hiddenInputs = composeDialog
+                ? composeDialog.querySelectorAll<HTMLInputElement>("input[type='file']")
+                : document.querySelectorAll<HTMLInputElement>("input[type='file']");
+
+              for (const fileInput of hiddenInputs) {
+                if (fillFileInput(fileInput, item.dataUrl, item.fileName)) {
+                  attached = true;
+                  break;
+                }
               }
-            } else {
-              // Try drag-and-drop on compose area (Gmail/Outlook)
+            }
+
+            if (!attached) {
+              // Fallback: drag-and-drop on compose area
               const composeArea = field.element.closest("[contenteditable='true']") ||
                                   document.querySelector("[role='textbox'][contenteditable='true']") ||
                                   field.element;
-              if (dropFileOnElement(composeArea as HTMLElement, item.dataUrl, item.fileName)) {
-                filledCount++;
-              }
+              attached = dropFileOnElement(composeArea as HTMLElement, item.dataUrl, item.fileName);
+            }
+
+            if (attached) {
+              filledCount++;
             }
           } else if (field.isTemplateField && field.templateLabel) {
             if (fillTemplateField(field.element, field.templateLabel, item.value)) {

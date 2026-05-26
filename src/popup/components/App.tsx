@@ -250,15 +250,17 @@ export default function App() {
         profileKey: newProfileKey,
         value: pf?.value || "",
         confidence: newProfileKey ? 1.0 : 0,
-        selected: !!newProfileKey,
+        selected: !!newProfileKey && !!(pf?.value || (pf?.isAttachment && pf?.attachment?.dataUrl)),
         group: newProfileKey.includes(".") ? newProfileKey.split(".")[0] : undefined,
+        isAttachment: pf?.isAttachment,
+        attachment: pf?.attachment,
       };
       return updated;
     });
   };
 
   const handleFillFields = async () => {
-    const selectedMatches = matches.filter((m) => m.selected && m.value);
+    const selectedMatches = matches.filter((m) => m.selected && (m.value || (m.isAttachment && m.attachment?.dataUrl)));
     if (selectedMatches.length === 0) {
       showStatus("No fields selected for filling", "error");
       return;
