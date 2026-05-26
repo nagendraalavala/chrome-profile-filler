@@ -476,6 +476,7 @@ export function matchFields(
     if (savedMapping) {
       const matched = profileFields.find((p) => p.dotKey === savedMapping.profileKey);
       if (matched) {
+        const hasValue = !!(matched.value && matched.value.trim());
         results.push({
           formFieldName: formField.name || formField.id,
           formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
@@ -483,7 +484,7 @@ export function matchFields(
           profileKey: matched.dotKey,
           value: matched.value,
           confidence: 1.0,
-          selected: true,
+          selected: hasValue,
           group: getGroupPrefix(matched.dotKey) || undefined,
           isAttachment: matched.isAttachment,
           attachment: matched.attachment,
@@ -505,6 +506,7 @@ export function matchFields(
     }
 
     if (bestMatch && bestScore >= 0.3) {
+      const hasValue = !!(bestMatch.value && bestMatch.value.trim());
       results.push({
         formFieldName: formField.name || formField.id,
         formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
@@ -512,7 +514,7 @@ export function matchFields(
         profileKey: bestMatch.dotKey,
         value: bestMatch.value,
         confidence: Math.round(bestScore * 100) / 100,
-        selected: bestScore >= 0.6,
+        selected: hasValue && bestScore >= 0.6,
         group: getGroupPrefix(bestMatch.dotKey) || undefined,
         isAttachment: bestMatch.isAttachment,
         attachment: bestMatch.attachment,
@@ -524,6 +526,7 @@ export function matchFields(
     if (!isFileField) {
       const composite = tryCompositeMatch(formField, regularFields);
       if (composite) {
+        const hasValue = !!(composite.value && composite.value.trim());
         results.push({
           formFieldName: formField.name || formField.id,
           formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
@@ -531,7 +534,7 @@ export function matchFields(
           profileKey: composite.rule.sourceKeys.join(" + "),
           value: composite.value,
           confidence: composite.confidence,
-          selected: true,
+          selected: hasValue,
           group: undefined,
         });
         continue;
@@ -540,6 +543,7 @@ export function matchFields(
       // 10. Try split matching (split a composite profile value)
       const split = trySplitMatch(formField, regularFields);
       if (split) {
+        const hasValue = !!(split.value && split.value.trim());
         results.push({
           formFieldName: formField.name || formField.id,
           formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
@@ -547,7 +551,7 @@ export function matchFields(
           profileKey: split.sourceKey + " (split)",
           value: split.value,
           confidence: split.confidence,
-          selected: true,
+          selected: hasValue,
           group: undefined,
         });
         continue;
