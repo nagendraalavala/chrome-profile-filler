@@ -19,6 +19,14 @@ function FieldRow({
 }) {
   const [isEditingKey, setIsEditingKey] = useState(false);
   const [keyValue, setKeyValue] = useState(field.label);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const isMultiLine = (field.value || "").includes("\n");
+
+  const autoResize = (el: HTMLTextAreaElement) => {
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
+  };
 
   const handleKeyEdit = () => {
     const trimmed = keyValue.trim();
@@ -34,7 +42,7 @@ function FieldRow({
   };
 
   return (
-    <div className="field-row">
+    <div className={`field-row ${isMultiLine ? "field-row-multiline" : ""}`}>
       {isEditingKey ? (
         <input
           className="field-key-input"
@@ -63,12 +71,17 @@ function FieldRow({
           {field.label}
         </span>
       )}
-      <input
-        className="field-input"
-        type="text"
+      <textarea
+        ref={textareaRef}
+        className="field-input field-textarea"
         value={field.value || ""}
         placeholder={`Enter ${field.label.toLowerCase()}`}
-        onChange={(e) => onUpdate({ ...field, value: e.target.value })}
+        rows={isMultiLine ? Math.min((field.value || "").split("\n").length, 8) : 1}
+        onChange={(e) => {
+          onUpdate({ ...field, value: e.target.value });
+          autoResize(e.target);
+        }}
+        onFocus={(e) => autoResize(e.target)}
       />
       <button
         className="field-delete-btn"
