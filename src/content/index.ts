@@ -545,13 +545,15 @@ function scanFormFields(): FormFieldInfo[] {
   const editableFields = scanContentEditableFields();
   fields.push(...editableFields);
 
-  // Scan standalone HTML tables for key-value pairs (non-editable pages)
-  const pageTableFields = scanTableFields(document.body);
-  // Only add table fields that aren't already covered by contenteditable scanning
-  const existingElements = new WeakSet<Element>(fields.map((f) => f.element));
-  for (const tf of pageTableFields) {
-    if (!existingElements.has(tf.element)) {
-      fields.push(tf);
+  // Only scan standalone tables on the page when no editable compose
+  // areas were found (avoids picking up email thread content in Gmail)
+  if (editableFields.length === 0) {
+    const pageTableFields = scanTableFields(document.body);
+    const existingElements = new WeakSet<Element>(fields.map((f) => f.element));
+    for (const tf of pageTableFields) {
+      if (!existingElements.has(tf.element)) {
+        fields.push(tf);
+      }
     }
   }
 
@@ -583,6 +585,12 @@ function scanSelectionFields(): FormFieldInfo[] {
     container = container.parentElement as HTMLElement;
   }
   if (!container) return [];
+
+  // Expand from a cell/row up to the full table for proper table scanning
+  const parentTable = container.closest("table");
+  if (parentTable) {
+    container = parentTable as HTMLElement;
+  }
 
   const fields: FormFieldInfo[] = [];
   const skipTypes = new Set(["hidden", "submit", "button", "reset", "file", "image", "checkbox", "radio"]);

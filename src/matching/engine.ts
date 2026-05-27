@@ -9,8 +9,17 @@ function normalize(str: string): string {
     .replace(/^_|_$/g, "");
 }
 
+const STOP_WORDS = new Set([
+  "to", "of", "with", "for", "the", "and", "or", "a", "an", "in", "on",
+  "at", "by", "is", "as", "per", "your", "my", "our", "their",
+]);
+
 function tokenize(str: string): string[] {
   return normalize(str).split("_").filter(Boolean);
+}
+
+function tokenizeNoStop(str: string): string[] {
+  return tokenize(str).filter((t) => !STOP_WORDS.has(t));
 }
 
 function levenshtein(a: string, b: string): number {
@@ -238,6 +247,36 @@ function scoreCandidate(
       const tokenScore = overlap / Math.max(formTokensExpanded.length, keyTokensExpanded.length);
       if (tokenScore > 0) {
         bestScore = Math.max(bestScore, tokenScore * 0.8);
+      }
+
+      // 6b. Subset matching with stop words removed — if ALL key
+      // tokens are found within the form tokens (ignoring filler words),
+      // the form field likely refers to the same concept.
+      // e.g. "Willing to Relocate" → ["willing","relocate"] contains "relocate"
+      const formContentTokens = tokenizeNoStop(candidate);
+      const keyContentTokens = tokenizeNoStop(dotKey.replace(/\./g, "_"));
+      const formExpContent = expandTokens(formContentTokens);
+      const keyExpContent = expandTokens(keyContentTokens);
+
+      if (keyExpContent.length > 0 && formExpContent.length > 0) {
+        if (keyExpContent.length <= formExpContent.length) {
+          const keySubset = keyExpContent.filter(
+            (t) => formExpContent.includes(t)
+          ).length;
+          if (keySubset === keyExpContent.length) {
+            const ratio = keySubset / formExpContent.length;
+            bestScore = Math.max(bestScore, 0.55 + ratio * 0.25);
+          }
+        }
+        if (formExpContent.length <= keyExpContent.length) {
+          const formSubset = formExpContent.filter(
+            (t) => keyExpContent.includes(t)
+          ).length;
+          if (formSubset === formExpContent.length) {
+            const ratio = formSubset / keyExpContent.length;
+            bestScore = Math.max(bestScore, 0.55 + ratio * 0.25);
+          }
+        }
       }
     }
 
