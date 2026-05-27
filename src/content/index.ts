@@ -566,6 +566,98 @@ function scanFormFields(): FormFieldInfo[] {
   return fields;
 }
 
+/**
+ * Scan only the user's selected/highlighted region of the page.
+ * Finds the nearest common ancestor of the selection and scans within it.
+ */
+function scanSelectionFields(): FormFieldInfo[] {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    return [];
+  }
+
+  // Get the container element that encompasses the selection
+  const range = selection.getRangeAt(0);
+  let container = range.commonAncestorContainer as HTMLElement;
+  if (container.nodeType === Node.TEXT_NODE) {
+    container = container.parentElement as HTMLElement;
+  }
+  if (!container) return [];
+
+  const fields: FormFieldInfo[] = [];
+  const skipTypes = new Set(["hidden", "submit", "button", "reset", "file", "image", "checkbox", "radio"]);
+
+  // Scan form inputs within the selection container
+  const formElements = container.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+    "input, textarea, select"
+  );
+  formElements.forEach((el) => {
+    if (el instanceof HTMLInputElement && skipTypes.has(el.type)) return;
+    if (!isVisible(el)) return;
+    if (!selection.containsNode(el, true)) return;
+
+    fields.push({
+      element: el,
+      name: el.getAttribute("name") || "",
+      id: el.getAttribute("id") || "",
+      label: findLabel(el),
+      type: el instanceof HTMLInputElement ? el.type : el.tagName.toLowerCase(),
+      placeholder: el.getAttribute("placeholder") || "",
+      sectionHeading: findSectionHeading(el),
+      autocomplete: el.getAttribute("autocomplete") || "",
+      isContentEditable: false,
+    });
+  });
+
+  // Scan tables within the selection
+  const tableFields = scanTableFields(container);
+  for (const tf of tableFields) {
+    if (selection.containsNode(tf.element, true)) {
+      fields.push(tf);
+    }
+  }
+
+  // Scan contenteditable elements within/containing the selection
+  const editableAncestor = container.closest(
+    "[contenteditable='true'], [contenteditable=''], [role='textbox']"
+  ) as HTMLElement | null;
+
+  if (editableAncestor) {
+    // The selection is inside a contenteditable - scan template fields within it
+    const tblFields = scanTableFields(editableAncestor);
+    const templateFields = scanTemplateFields(editableAncestor);
+    const existingElements = new WeakSet<Element>(fields.map((f) => f.element));
+
+    for (const f of [...tblFields, ...templateFields]) {
+      if (!existingElements.has(f.element) && selection.containsNode(f.element, true)) {
+        fields.push(f);
+      }
+    }
+  } else {
+    // Check for contenteditable elements within the selection
+    const editables = container.querySelectorAll<HTMLElement>(
+      "[contenteditable='true'], [contenteditable=''], [role='textbox']"
+    );
+    const existingElements = new WeakSet<Element>(fields.map((f) => f.element));
+
+    editables.forEach((el) => {
+      if (!selection.containsNode(el, true)) return;
+      if (!isVisible(el)) return;
+
+      const tblFields = scanTableFields(el);
+      const templateFields = scanTemplateFields(el);
+
+      for (const f of [...tblFields, ...templateFields]) {
+        if (!existingElements.has(f.element)) {
+          fields.push(f);
+        }
+      }
+    });
+  }
+
+  return fields;
+}
+
 function serializeFormFields(fields: FormFieldInfo[]): Array<Omit<FormFieldInfo, "element"> & { index: number }> {
   return fields.map((f, index) => ({
     index,
@@ -979,6 +1071,10 @@ chrome.runtime.onMessage.addListener(
   (message: ExtensionMessage, _sender, sendResponse) => {
     if (message.action === "GET_FORM_FIELDS") {
       lastScannedFields = scanFormFields();
+      const serialized = serializeFormFields(lastScannedFields);
+      sendResponse({ action: "FORM_FIELDS_RESULT", data: serialized });
+    } else if (message.action === "GET_SELECTION_FIELDS") {
+      lastScannedFields = scanSelectionFields();
       const serialized = serializeFormFields(lastScannedFields);
       sendResponse({ action: "FORM_FIELDS_RESULT", data: serialized });
     } else if (message.action === "FILL_FIELDS") {
