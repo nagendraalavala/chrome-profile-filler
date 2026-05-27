@@ -574,10 +574,17 @@ function dropFileOnElement(
 
 function fillContentEditable(element: HTMLElement, value: string): void {
   element.focus();
-  element.textContent = value;
 
-  if (!element.textContent) {
-    element.innerHTML = value;
+  if (value.includes("\n")) {
+    element.innerHTML = value
+      .split("\n")
+      .map((line) => escapeHtml(line))
+      .join("<br>");
+  } else {
+    element.textContent = value;
+    if (!element.textContent) {
+      element.innerHTML = escapeHtml(value);
+    }
   }
 
   element.dispatchEvent(new InputEvent("input", {
@@ -588,6 +595,14 @@ function fillContentEditable(element: HTMLElement, value: string): void {
   }));
   element.dispatchEvent(new Event("change", { bubbles: true }));
   element.dispatchEvent(new Event("blur", { bubbles: true }));
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 /**
@@ -686,9 +701,23 @@ function findSeparatorEnd(line: string, format: TemplateFormat): number {
 }
 
 /**
+ * Convert a multi-line value to HTML with <br> tags, escaping special chars.
+ */
+function valueToHtml(value: string): string {
+  if (value.includes("\n")) {
+    return value
+      .split("\n")
+      .map((line) => escapeHtml(line))
+      .join("<br>");
+  }
+  return escapeHtml(value);
+}
+
+/**
  * Fill a template field inside a contenteditable element.
  * Detects the format used by each label and places the value after
  * the separator, preserving the original structure.
+ * Supports multi-line values (e.g. references with name, designation, email).
  */
 function fillTemplateField(
   element: HTMLElement,
@@ -700,6 +729,7 @@ function fillTemplateField(
 
   const html = element.innerHTML;
   const escapedLabel = templateLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const htmlValue = valueToHtml(value);
 
   // Try format-specific HTML patterns first, then fall back to generic ones
   const formatPatterns = buildHtmlPatterns(escapedLabel, format);
@@ -711,11 +741,11 @@ function fillTemplateField(
     if (match) {
       let newHtml: string;
       if (format === "underscore") {
-        newHtml = html.replace(pattern, `$1${value}`);
+        newHtml = html.replace(pattern, `$1${htmlValue}`);
       } else if (format === "bare") {
-        newHtml = html.replace(pattern, `$1 ${value}`);
+        newHtml = html.replace(pattern, `$1 ${htmlValue}`);
       } else {
-        newHtml = html.replace(pattern, `$1${value}`);
+        newHtml = html.replace(pattern, `$1${htmlValue}`);
       }
       element.innerHTML = newHtml;
 
@@ -736,39 +766,54 @@ function fillTemplateField(
   const labelLower = templateLabel.toLowerCase();
   let found = false;
 
-  const newLines = lines.map((line) => {
-    if (found) return line;
+  const newLines: string[] = [];
+  for (const line of lines) {
+    if (found) {
+      newLines.push(line);
+      continue;
+    }
     const trimmedLower = line.trim().toLowerCase();
-    if (!trimmedLower.includes(labelLower)) return line;
+    if (!trimmedLower.includes(labelLower)) {
+      newLines.push(line);
+      continue;
+    }
 
     // Try format-specific separator first
     const sepEnd = findSeparatorEnd(line, format);
     if (sepEnd >= 0) {
       found = true;
       const prefix = line.substring(0, sepEnd);
-      return format === "bare" || format === "underscore"
-        ? prefix + " " + value
-        : prefix + " " + value;
+      newLines.push(prefix + " " + value);
+      continue;
     }
 
     // Generic fallback: try colon, then tab, then append
     const colonIdx = line.lastIndexOf(":");
     if (colonIdx >= 0) {
       found = true;
-      return line.substring(0, colonIdx + 1) + " " + value;
+      newLines.push(line.substring(0, colonIdx + 1) + " " + value);
+      continue;
     }
     const tabIdx = line.indexOf("\t");
     if (tabIdx >= 0) {
       found = true;
-      return line.substring(0, tabIdx + 1) + value;
+      newLines.push(line.substring(0, tabIdx + 1) + value);
+      continue;
     }
     // Last resort: append after the label
     found = true;
-    return line + " " + value;
-  });
+    newLines.push(line + " " + value);
+  }
 
   if (found) {
-    element.innerText = newLines.join("\n");
+    // For multi-line values in text mode, use innerHTML with <br> to preserve lines
+    if (value.includes("\n")) {
+      element.innerHTML = newLines
+        .map((line) => escapeHtml(line))
+        .join("<br>");
+    } else {
+      element.innerText = newLines.join("\n");
+    }
     element.dispatchEvent(new InputEvent("input", {
       bubbles: true,
       cancelable: true,

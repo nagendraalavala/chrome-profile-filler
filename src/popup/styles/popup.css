@@ -252,6 +252,26 @@ body {
   transition: border-color 0.2s;
 }
 
+.field-textarea {
+  resize: vertical;
+  min-height: 28px;
+  font-family: inherit;
+  line-height: 1.4;
+  overflow: hidden;
+}
+
+.field-row-multiline {
+  align-items: flex-start;
+}
+
+.field-row-multiline .field-label {
+  padding-top: 6px;
+}
+
+.field-row-multiline .field-delete-btn {
+  padding-top: 6px;
+}
+
 .field-input:focus {
   outline: none;
   border-color: #4361ee;
