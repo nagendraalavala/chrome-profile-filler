@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Profile, ProfileField, MatchResult, FlattenedField, SiteMapping } from "../../models/profile";
+import { Profile, ProfileField, MatchResult, FlattenedField, SiteMapping, FormFieldInfo } from "../../models/profile";
 import { flattenFields } from "../../utils/flatten";
 import { generateId } from "../../utils/ids";
 import { matchFields } from "../../matching/engine";
@@ -33,6 +33,7 @@ interface SerializedFormField {
   acceptTypes?: string;
   isTemplateField?: boolean;
   templateLabel?: string;
+  templateFormat?: string;
 }
 
 export default function App() {
@@ -208,6 +209,7 @@ export default function App() {
         acceptTypes: f.acceptTypes,
         isTemplateField: f.isTemplateField,
         templateLabel: f.templateLabel,
+        templateFormat: f.templateFormat as FormFieldInfo["templateFormat"],
       }));
 
       const currentFlatFields = activeProfile

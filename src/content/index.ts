@@ -118,66 +118,142 @@ function getEditablePlaceholder(el: HTMLElement): string {
 }
 
 // ---------------------------------------------------------------------------
-// Template scanning: detect "Label:" patterns in contenteditable text
-// (e.g. Gmail replies with "Full Name:", "Current Location:", etc.)
+// Template scanning: detect label patterns in contenteditable text.
+// Supports multiple formats including colon, star, tab-separated, dash,
+// pipe, arrow, equals, underscore placeholders, and bare key lines.
 // ---------------------------------------------------------------------------
 
-// Pattern 1: Line ends with colon, optionally preceded by stars (e.g. "Full Name:", "LinkedIn***:")
-const TEMPLATE_COLON_PATTERN = /^(.+?)\s*[*]*:\s*$/;
-// Pattern 2: Line ends with asterisk(s) only, no colon (e.g. "Visa Status*", "PP Number*")
-const TEMPLATE_STAR_PATTERN = /^([A-Za-z].+?)\s*\*+\s*$/;
+type TemplateFormat = "colon" | "star" | "tab" | "dash" | "pipe" | "arrow" | "equals" | "underscore" | "bare";
 
-function extractTemplateLabels(element: HTMLElement): string[] {
+interface DetectedLabel {
+  label: string;
+  format: TemplateFormat;
+}
+
+function isValidLabel(label: string): boolean {
+  return label.length >= 2 && /^[A-Za-z]/.test(label);
+}
+
+function isSkippableLine(trimmed: string): boolean {
+  if (!trimmed) return true;
+  if (trimmed.length > 80) return true;
+  if (trimmed.startsWith("http") || trimmed.startsWith("www.")) return true;
+  if (trimmed.includes("@") && !trimmed.endsWith(":")) return true;
+  return false;
+}
+
+function extractTemplateLabels(element: HTMLElement): DetectedLabel[] {
   const text = element.innerText || element.textContent || "";
   const lines = text.split("\n");
-  const labels: string[] = [];
+  const results: DetectedLabel[] = [];
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    // Skip lines that are too long (likely paragraph text, not labels)
-    if (trimmed.length > 80) continue;
-    // Skip lines that look like email signatures or URLs
-    if (trimmed.startsWith("http") || trimmed.startsWith("www.")) continue;
-    if (trimmed.includes("@") && !trimmed.endsWith(":")) continue;
+  // Track bare-key candidates separately; only include them if
+  // we find at least 2 short capitalized lines with no other format.
+  const bareCandidates: DetectedLabel[] = [];
 
-    let match = trimmed.match(TEMPLATE_COLON_PATTERN);
-    if (match) {
-      const label = match[1].trim();
-      // Ensure the label starts with a letter and has meaningful content
-      if (label.length >= 2 && /^[A-Za-z]/.test(label)) {
-        labels.push(label);
-      }
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (isSkippableLine(trimmed)) continue;
+
+    // --- 1. Colon format: "Full Name:" or "LinkedIn***:" ---
+    let match = trimmed.match(/^(.+?)\s*[*]*:\s*$/);
+    if (match && isValidLabel(match[1].trim())) {
+      results.push({ label: match[1].trim(), format: "colon" });
       continue;
     }
 
-    match = trimmed.match(TEMPLATE_STAR_PATTERN);
-    if (match) {
-      const label = match[1].trim();
-      if (label.length >= 2) {
-        labels.push(label);
+    // --- 2. Colon with existing value: "Full Name: John" (key\t before value) ---
+    match = trimmed.match(/^(.+?)\s*[*]*:\s+(.+)$/);
+    if (match && isValidLabel(match[1].trim())) {
+      results.push({ label: match[1].trim(), format: "colon" });
+      continue;
+    }
+
+    // --- 3. Star format: "Visa Status*" ---
+    match = trimmed.match(/^([A-Za-z].+?)\s*\*+\s*$/);
+    if (match && isValidLabel(match[1].trim())) {
+      results.push({ label: match[1].trim(), format: "star" });
+      continue;
+    }
+
+    // --- 4. Tab-separated: "Full Name\t" or "Full Name\tvalue" ---
+    if (rawLine.includes("\t")) {
+      const parts = rawLine.split("\t");
+      const key = parts[0].trim();
+      if (isValidLabel(key)) {
+        results.push({ label: key, format: "tab" });
+        continue;
       }
     }
+
+    // --- 5. Pipe format: "Full Name |" or "Full Name | value" ---
+    match = trimmed.match(/^([A-Za-z].+?)\s*\|\s*(.*)$/);
+    if (match && isValidLabel(match[1].trim())) {
+      results.push({ label: match[1].trim(), format: "pipe" });
+      continue;
+    }
+
+    // --- 6. Arrow format: "Full Name =>" or "Full Name ->" ---
+    match = trimmed.match(/^([A-Za-z].+?)\s*(?:=>|->)\s*(.*)$/);
+    if (match && isValidLabel(match[1].trim())) {
+      results.push({ label: match[1].trim(), format: "arrow" });
+      continue;
+    }
+
+    // --- 7. Equals format: "Full Name =" or "Full Name = value" ---
+    match = trimmed.match(/^([A-Za-z].+?)\s*=\s*(.*)$/);
+    if (match && isValidLabel(match[1].trim())) {
+      results.push({ label: match[1].trim(), format: "equals" });
+      continue;
+    }
+
+    // --- 8. Dash separator: "Full Name - " or "Full Name – " ---
+    match = trimmed.match(/^([A-Za-z].+?)\s+[-–—]\s*(.*)$/);
+    if (match && isValidLabel(match[1].trim())) {
+      results.push({ label: match[1].trim(), format: "dash" });
+      continue;
+    }
+
+    // --- 9. Underscore placeholder: "Full Name ____" or "Full Name: ___" ---
+    match = trimmed.match(/^([A-Za-z].+?)\s*:?\s*_{2,}\s*$/);
+    if (match && isValidLabel(match[1].trim())) {
+      results.push({ label: match[1].trim(), format: "underscore" });
+      continue;
+    }
+
+    // --- 10. Bare key candidate: short capitalized line with no value ---
+    // Only treated as labels if enough such lines appear together.
+    if (/^[A-Za-z][A-Za-z0-9 /().#]{1,40}$/.test(trimmed) && !trimmed.includes("  ")) {
+      bareCandidates.push({ label: trimmed, format: "bare" });
+    }
   }
-  return labels;
+
+  // Include bare candidates if we found at least 2 AND no other formats
+  // were detected (to avoid false positives on normal paragraph text).
+  if (results.length === 0 && bareCandidates.length >= 2) {
+    results.push(...bareCandidates);
+  }
+
+  return results;
 }
 
 function scanTemplateFields(element: HTMLElement): FormFieldInfo[] {
-  const labels = extractTemplateLabels(element);
-  if (labels.length < 2) return []; // Need at least 2 labels to be a template
+  const detected = extractTemplateLabels(element);
+  if (detected.length < 2) return [];
 
-  return labels.map((label) => ({
+  return detected.map((d) => ({
     element,
-    name: label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
+    name: d.label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
     id: "",
-    label,
+    label: d.label,
     type: "template-field",
     placeholder: "",
     sectionHeading: "",
     autocomplete: "",
     isContentEditable: true,
     isTemplateField: true,
-    templateLabel: label,
+    templateLabel: d.label,
+    templateFormat: d.format,
   }));
 }
 
@@ -415,6 +491,7 @@ function serializeFormFields(fields: FormFieldInfo[]): Array<Omit<FormFieldInfo,
     acceptTypes: f.acceptTypes,
     isTemplateField: f.isTemplateField,
     templateLabel: f.templateLabel,
+    templateFormat: f.templateFormat,
   }));
 }
 
@@ -514,29 +591,132 @@ function fillContentEditable(element: HTMLElement, value: string): void {
 }
 
 /**
- * Fill a template field inside a contenteditable element.
- * Finds the line with "Label:" or "Label*" and appends the value after it.
+ * Build HTML-level regex patterns for a given label + format so we can
+ * replace the value portion while preserving the separator and formatting.
  */
-function fillTemplateField(element: HTMLElement, templateLabel: string, value: string): boolean {
+function buildHtmlPatterns(escapedLabel: string, format: TemplateFormat): RegExp[] {
+  switch (format) {
+    case "colon":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*[*]*:[\\s]*)([^<\\n]*)`, "i"),
+      ];
+    case "star":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*\\*+[\\s]*)([^<\\n]*)`, "i"),
+      ];
+    case "tab":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*\\t[\\s]*)([^<\\n]*)`, "i"),
+        new RegExp(`(${escapedLabel}[\\s]+)([^<\\n]*)`, "i"),
+      ];
+    case "pipe":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*\\|[\\s]*)([^<\\n]*)`, "i"),
+      ];
+    case "arrow":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*(?:=>|->)[\\s]*)([^<\\n]*)`, "i"),
+      ];
+    case "equals":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*=[\\s]*)([^<\\n]*)`, "i"),
+      ];
+    case "dash":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]+[-–—][\\s]*)([^<\\n]*)`, "i"),
+      ];
+    case "underscore":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*:?[\\s]*)_{2,}`, "i"),
+      ];
+    case "bare":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*)()$`, "im"),
+      ];
+    default:
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*[*]*[:\\s]*)([^<\\n]*)`, "i"),
+      ];
+  }
+}
+
+/**
+ * For the text-based fallback, find the separator position in a line
+ * so we can replace everything after it with the value.
+ */
+function findSeparatorEnd(line: string, format: TemplateFormat): number {
+  switch (format) {
+    case "colon": {
+      const idx = line.lastIndexOf(":");
+      return idx >= 0 ? idx + 1 : -1;
+    }
+    case "star": {
+      const m = line.match(/^(.*\*+)\s*$/);
+      return m ? m[1].length : -1;
+    }
+    case "tab": {
+      const idx = line.indexOf("\t");
+      return idx >= 0 ? idx + 1 : -1;
+    }
+    case "pipe": {
+      const idx = line.indexOf("|");
+      return idx >= 0 ? idx + 1 : -1;
+    }
+    case "arrow": {
+      const m = line.match(/(=>|->)/);
+      return m && m.index !== undefined ? m.index + m[1].length : -1;
+    }
+    case "equals": {
+      const idx = line.indexOf("=");
+      return idx >= 0 ? idx + 1 : -1;
+    }
+    case "dash": {
+      const m = line.match(/\s+([-–—])\s*/);
+      return m && m.index !== undefined ? m.index + m[0].length : -1;
+    }
+    case "underscore": {
+      const m = line.match(/_{2,}/);
+      return m && m.index !== undefined ? m.index : -1;
+    }
+    case "bare":
+      return line.length;
+    default:
+      return -1;
+  }
+}
+
+/**
+ * Fill a template field inside a contenteditable element.
+ * Detects the format used by each label and places the value after
+ * the separator, preserving the original structure.
+ */
+function fillTemplateField(
+  element: HTMLElement,
+  templateLabel: string,
+  value: string,
+  format: TemplateFormat = "colon",
+): boolean {
   element.focus();
 
-  // Work with innerHTML to preserve formatting
   const html = element.innerHTML;
-  // Escape the label for use in regex
   const escapedLabel = templateLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-  // Try multiple patterns to find the label in HTML:
-  // 1. Label followed by optional stars then colon: "Full Name:", "LinkedIn***:"
-  // 2. Label followed by stars only: "Visa Status*", "PP Number*"
-  const patterns = [
-    new RegExp(`(${escapedLabel}[\\s]*[*]*[:\\s]*)([^<\\n]*)`, "i"),
-    new RegExp(`(${escapedLabel}[\\s]*\\*+[\\s]*)([^<\\n]*)`, "i"),
-  ];
+  // Try format-specific HTML patterns first, then fall back to generic ones
+  const formatPatterns = buildHtmlPatterns(escapedLabel, format);
+  const genericPatterns = format !== "colon" ? buildHtmlPatterns(escapedLabel, "colon") : [];
+  const allPatterns = [...formatPatterns, ...genericPatterns];
 
-  for (const pattern of patterns) {
+  for (const pattern of allPatterns) {
     const match = html.match(pattern);
     if (match) {
-      const newHtml = html.replace(pattern, `$1${value}`);
+      let newHtml: string;
+      if (format === "underscore") {
+        newHtml = html.replace(pattern, `$1${value}`);
+      } else if (format === "bare") {
+        newHtml = html.replace(pattern, `$1 ${value}`);
+      } else {
+        newHtml = html.replace(pattern, `$1${value}`);
+      }
       element.innerHTML = newHtml;
 
       element.dispatchEvent(new InputEvent("input", {
@@ -550,7 +730,7 @@ function fillTemplateField(element: HTMLElement, templateLabel: string, value: s
     }
   }
 
-  // Fallback: try with textContent line-by-line
+  // Fallback: line-by-line text replacement
   const text = element.innerText || element.textContent || "";
   const lines = text.split("\n");
   const labelLower = templateLabel.toLowerCase();
@@ -558,23 +738,33 @@ function fillTemplateField(element: HTMLElement, templateLabel: string, value: s
 
   const newLines = lines.map((line) => {
     if (found) return line;
-    const trimmed = line.trim().toLowerCase();
-    // Check if this line contains the label
-    if (trimmed.includes(labelLower)) {
-      // Find the last colon or the last sequence of stars
-      const lastColonIdx = line.lastIndexOf(":");
-      if (lastColonIdx >= 0) {
-        found = true;
-        return line.substring(0, lastColonIdx + 1) + " " + value;
-      }
-      // Find trailing stars
-      const starMatch = line.match(/^(.*\*+)\s*$/);
-      if (starMatch) {
-        found = true;
-        return starMatch[1] + " " + value;
-      }
+    const trimmedLower = line.trim().toLowerCase();
+    if (!trimmedLower.includes(labelLower)) return line;
+
+    // Try format-specific separator first
+    const sepEnd = findSeparatorEnd(line, format);
+    if (sepEnd >= 0) {
+      found = true;
+      const prefix = line.substring(0, sepEnd);
+      return format === "bare" || format === "underscore"
+        ? prefix + " " + value
+        : prefix + " " + value;
     }
-    return line;
+
+    // Generic fallback: try colon, then tab, then append
+    const colonIdx = line.lastIndexOf(":");
+    if (colonIdx >= 0) {
+      found = true;
+      return line.substring(0, colonIdx + 1) + " " + value;
+    }
+    const tabIdx = line.indexOf("\t");
+    if (tabIdx >= 0) {
+      found = true;
+      return line.substring(0, tabIdx + 1) + value;
+    }
+    // Last resort: append after the label
+    found = true;
+    return line + " " + value;
   });
 
   if (found) {
@@ -662,7 +852,7 @@ chrome.runtime.onMessage.addListener(
               }
             }
           } else if (field.isTemplateField && field.templateLabel) {
-            if (fillTemplateField(field.element, field.templateLabel, item.value)) {
+            if (fillTemplateField(field.element, field.templateLabel, item.value, field.templateFormat || "colon")) {
               filledCount++;
             }
           } else {
