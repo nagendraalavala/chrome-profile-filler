@@ -123,7 +123,7 @@ function getEditablePlaceholder(el: HTMLElement): string {
 // pipe, arrow, equals, underscore placeholders, and bare key lines.
 // ---------------------------------------------------------------------------
 
-type TemplateFormat = "colon" | "star" | "tab" | "dash" | "pipe" | "arrow" | "equals" | "underscore" | "bare";
+type TemplateFormat = "colon" | "star" | "tab" | "dash" | "pipe" | "arrow" | "equals" | "underscore" | "bare" | "table";
 
 interface DetectedLabel {
   label: string;
@@ -258,6 +258,73 @@ function scanTemplateFields(element: HTMLElement): FormFieldInfo[] {
 }
 
 // ---------------------------------------------------------------------------
+// Table scanning: detect key-value pairs in HTML tables inside editable areas
+// (e.g. email templates with tabular layout: left cell = label, right cell = value)
+// ---------------------------------------------------------------------------
+
+function scanTableFields(container: HTMLElement): FormFieldInfo[] {
+  const fields: FormFieldInfo[] = [];
+  const tables = container.querySelectorAll("table");
+
+  for (const table of Array.from(tables)) {
+    const rows = table.querySelectorAll("tr");
+    let keyValuePairs = 0;
+
+    // First pass: count how many rows look like key-value pairs
+    for (const row of Array.from(rows)) {
+      const cells = row.querySelectorAll("td, th");
+      if (cells.length >= 2) {
+        const keyText = (cells[0].textContent || "").trim();
+        if (keyText.length >= 2 && /^[A-Za-z]/.test(keyText) && keyText.length <= 80) {
+          keyValuePairs++;
+        }
+      }
+    }
+
+    // Need at least 2 key-value rows to treat this as a template table
+    if (keyValuePairs < 2) continue;
+
+    // Second pass: create field entries
+    for (const row of Array.from(rows)) {
+      const cells = row.querySelectorAll("td, th");
+      if (cells.length < 2) continue;
+
+      const keyCell = cells[0];
+      const valueCell = cells[cells.length - 1];
+      const keyText = (keyCell.textContent || "").trim();
+
+      // Skip if key cell is empty, too short, or too long
+      if (keyText.length < 2 || keyText.length > 80) continue;
+      if (!/^[A-Za-z]/.test(keyText)) continue;
+
+      // Skip if the key cell and value cell are the same (single-cell row)
+      if (keyCell === valueCell) continue;
+
+      // Clean the label: strip trailing colons/stars that might be in the cell
+      const label = keyText.replace(/[:\s*]+$/, "").trim();
+      if (label.length < 2) continue;
+
+      fields.push({
+        element: valueCell as HTMLElement,
+        name: label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
+        id: "",
+        label,
+        type: "template-field",
+        placeholder: "",
+        sectionHeading: findSectionHeading(table as HTMLElement),
+        autocomplete: "",
+        isContentEditable: true,
+        isTemplateField: true,
+        templateLabel: label,
+        templateFormat: "table",
+      });
+    }
+  }
+
+  return fields;
+}
+
+// ---------------------------------------------------------------------------
 // Scanning: contenteditable elements (email composers, rich text editors)
 // ---------------------------------------------------------------------------
 
@@ -282,6 +349,19 @@ function scanContentEditableFields(): FormFieldInfo[] {
     if (rect.height < 20 || rect.width < 40) return;
 
     seen.add(el);
+
+    // Check if this contenteditable contains HTML tables with key-value pairs
+    const tableFields = scanTableFields(el);
+    if (tableFields.length > 0) {
+      fields.push(...tableFields);
+
+      // Also scan for text-based template patterns outside the tables
+      const templateFields = scanTemplateFields(el);
+      if (templateFields.length > 0) {
+        fields.push(...templateFields);
+      }
+      return;
+    }
 
     // Check if this contenteditable contains template patterns (e.g. email reply with "Label:" lines)
     const templateFields = scanTemplateFields(el);
@@ -464,6 +544,16 @@ function scanFormFields(): FormFieldInfo[] {
   // Scan contenteditable elements (email composers, rich text editors, docs)
   const editableFields = scanContentEditableFields();
   fields.push(...editableFields);
+
+  // Scan standalone HTML tables for key-value pairs (non-editable pages)
+  const pageTableFields = scanTableFields(document.body);
+  // Only add table fields that aren't already covered by contenteditable scanning
+  const existingElements = new WeakSet<Element>(fields.map((f) => f.element));
+  for (const tf of pageTableFields) {
+    if (!existingElements.has(tf.element)) {
+      fields.push(tf);
+    }
+  }
 
   // Scan same-origin iframes for fields and editors
   const iframeFields = scanIframeFields();
@@ -827,6 +917,29 @@ function fillTemplateField(
   return false;
 }
 
+/**
+ * Fill a table cell (<td>) directly with a value.
+ * Supports multi-line values by converting \n to <br>.
+ */
+function fillTableCell(element: HTMLElement, value: string): void {
+  if (value.includes("\n")) {
+    element.innerHTML = value
+      .split("\n")
+      .map((line) => escapeHtml(line))
+      .join("<br>");
+  } else {
+    element.textContent = value;
+  }
+
+  element.dispatchEvent(new InputEvent("input", {
+    bubbles: true,
+    cancelable: true,
+    inputType: "insertText",
+    data: value,
+  }));
+  element.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
 function fillField(
   element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLElement,
   value: string,
@@ -896,6 +1009,9 @@ chrome.runtime.onMessage.addListener(
                 filledCount++;
               }
             }
+          } else if (field.isTemplateField && field.templateFormat === "table") {
+            fillTableCell(field.element, item.value);
+            filledCount++;
           } else if (field.isTemplateField && field.templateLabel) {
             if (fillTemplateField(field.element, field.templateLabel, item.value, field.templateFormat || "colon")) {
               filledCount++;
