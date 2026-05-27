@@ -19,6 +19,40 @@ import "../styles/popup.css";
 
 type TabId = "edit" | "preview" | "import";
 
+/**
+ * Ensure the content script is injected into the given tab.
+ * If sendMessage fails with a connection error, programmatically inject
+ * the content script via chrome.scripting.executeScript and retry.
+ */
+async function sendMessageWithInjection(
+  tabId: number,
+  message: { action: string; data?: unknown },
+): Promise<{ action: string; data?: unknown }> {
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, message);
+    return response;
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const isConnectionError =
+      errMsg.includes("Could not establish connection") ||
+      errMsg.includes("Receiving end does not exist");
+
+    if (!isConnectionError) throw err;
+
+    // Inject content script programmatically
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["content.js"],
+    });
+
+    // Brief delay for script initialization
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    // Retry the message
+    return chrome.tabs.sendMessage(tabId, message);
+  }
+}
+
 interface SerializedFormField {
   index: number;
   name: string;
@@ -170,7 +204,7 @@ export default function App() {
         return;
       }
 
-      const response = await chrome.tabs.sendMessage(tab.id, {
+      const response = await sendMessageWithInjection(tab.id, {
         action: "GET_FORM_FIELDS",
       });
 
@@ -295,12 +329,13 @@ export default function App() {
         })
         .filter((d) => d.index >= 0);
 
-      const response = await chrome.tabs.sendMessage(tab.id, {
+      const response = await sendMessageWithInjection(tab.id, {
         action: "FILL_FIELDS",
         data: fillData,
       });
 
-      const filledCount = response?.data?.filledCount ?? fillData.length;
+      const responseData = response?.data as { filledCount?: number } | undefined;
+      const filledCount = responseData?.filledCount ?? fillData.length;
       showStatus(`Filled ${filledCount} fields`, "success");
     } catch (err) {
       showStatus(
