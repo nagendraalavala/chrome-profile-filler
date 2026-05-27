@@ -65,6 +65,7 @@ export interface FormFieldInfo {
   acceptTypes?: string;
   isTemplateField?: boolean;
   templateLabel?: string;
+  templateFormat?: "colon" | "star" | "tab" | "dash" | "pipe" | "arrow" | "equals" | "underscore" | "bare";
 }
 
 export type MessageAction =
