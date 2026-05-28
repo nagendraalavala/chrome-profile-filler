@@ -72,6 +72,7 @@ export type MessageAction =
   | "SCAN_FORM"
   | "FILL_FIELDS"
   | "GET_FORM_FIELDS"
+  | "GET_SELECTION_FIELDS"
   | "SCAN_RESULT"
   | "FILL_RESULT"
   | "FORM_FIELDS_RESULT";

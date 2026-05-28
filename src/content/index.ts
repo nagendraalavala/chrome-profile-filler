@@ -545,13 +545,15 @@ function scanFormFields(): FormFieldInfo[] {
   const editableFields = scanContentEditableFields();
   fields.push(...editableFields);
 
-  // Scan standalone HTML tables for key-value pairs (non-editable pages)
-  const pageTableFields = scanTableFields(document.body);
-  // Only add table fields that aren't already covered by contenteditable scanning
-  const existingElements = new WeakSet<Element>(fields.map((f) => f.element));
-  for (const tf of pageTableFields) {
-    if (!existingElements.has(tf.element)) {
-      fields.push(tf);
+  // Only scan standalone tables on the page when no editable compose
+  // areas were found (avoids picking up email thread content in Gmail)
+  if (editableFields.length === 0) {
+    const pageTableFields = scanTableFields(document.body);
+    const existingElements = new WeakSet<Element>(fields.map((f) => f.element));
+    for (const tf of pageTableFields) {
+      if (!existingElements.has(tf.element)) {
+        fields.push(tf);
+      }
     }
   }
 
@@ -562,6 +564,115 @@ function scanFormFields(): FormFieldInfo[] {
   // Scan file input fields for attachment support
   const fileFields = scanFileInputs();
   fields.push(...fileFields);
+
+  return fields;
+}
+
+/**
+ * Scan only the user's selected/highlighted region of the page.
+ * Finds the nearest common ancestor of the selection and scans within it.
+ */
+function selectionIntersectsField(
+  selection: Selection,
+  field: FormFieldInfo,
+): boolean {
+  // For table fields, check if the ROW intersects the selection
+  // (user may select the label cell, not the value cell)
+  if (field.templateFormat === "table") {
+    const row = field.element.closest("tr");
+    if (row) return selection.containsNode(row, true);
+  }
+  return selection.containsNode(field.element, true);
+}
+
+function scanSelectionFields(): FormFieldInfo[] {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    return [];
+  }
+
+  // Get the container element that encompasses the selection
+  const range = selection.getRangeAt(0);
+  let container = range.commonAncestorContainer as HTMLElement;
+  if (container.nodeType === Node.TEXT_NODE) {
+    container = container.parentElement as HTMLElement;
+  }
+  if (!container) return [];
+
+  // Expand from a cell/row up to the full table for proper table scanning
+  const parentTable = container.closest("table");
+  if (parentTable) {
+    container = parentTable as HTMLElement;
+  }
+
+  const fields: FormFieldInfo[] = [];
+  const skipTypes = new Set(["hidden", "submit", "button", "reset", "file", "image", "checkbox", "radio"]);
+
+  // Scan form inputs within the selection container
+  const formElements = container.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+    "input, textarea, select"
+  );
+  formElements.forEach((el) => {
+    if (el instanceof HTMLInputElement && skipTypes.has(el.type)) return;
+    if (!isVisible(el)) return;
+    if (!selection.containsNode(el, true)) return;
+
+    fields.push({
+      element: el,
+      name: el.getAttribute("name") || "",
+      id: el.getAttribute("id") || "",
+      label: findLabel(el),
+      type: el instanceof HTMLInputElement ? el.type : el.tagName.toLowerCase(),
+      placeholder: el.getAttribute("placeholder") || "",
+      sectionHeading: findSectionHeading(el),
+      autocomplete: el.getAttribute("autocomplete") || "",
+      isContentEditable: false,
+    });
+  });
+
+  // Scan tables within the selection (check row intersection for table fields)
+  const tableFields = scanTableFields(container);
+  for (const tf of tableFields) {
+    if (selectionIntersectsField(selection, tf)) {
+      fields.push(tf);
+    }
+  }
+
+  // Scan contenteditable elements within/containing the selection
+  const editableAncestor = container.closest(
+    "[contenteditable='true'], [contenteditable=''], [role='textbox']"
+  ) as HTMLElement | null;
+
+  if (editableAncestor) {
+    const tblFields = scanTableFields(editableAncestor);
+    const templateFields = scanTemplateFields(editableAncestor);
+    const existingElements = new WeakSet<Element>(fields.map((f) => f.element));
+
+    for (const f of [...tblFields, ...templateFields]) {
+      if (!existingElements.has(f.element) && selectionIntersectsField(selection, f)) {
+        fields.push(f);
+      }
+    }
+  } else {
+    const editables = container.querySelectorAll<HTMLElement>(
+      "[contenteditable='true'], [contenteditable=''], [role='textbox']"
+    );
+    const existingElements = new WeakSet<Element>(fields.map((f) => f.element));
+
+    editables.forEach((el) => {
+      if (!selection.containsNode(el, true)) return;
+      if (!isVisible(el)) return;
+
+      const tblFields = scanTableFields(el);
+      const templateFields = scanTemplateFields(el);
+
+      for (const f of [...tblFields, ...templateFields]) {
+        if (!existingElements.has(f.element) && selectionIntersectsField(selection, f)) {
+          fields.push(f);
+        }
+      }
+    });
+  }
 
   return fields;
 }
@@ -979,6 +1090,10 @@ chrome.runtime.onMessage.addListener(
   (message: ExtensionMessage, _sender, sendResponse) => {
     if (message.action === "GET_FORM_FIELDS") {
       lastScannedFields = scanFormFields();
+      const serialized = serializeFormFields(lastScannedFields);
+      sendResponse({ action: "FORM_FIELDS_RESULT", data: serialized });
+    } else if (message.action === "GET_SELECTION_FIELDS") {
+      lastScannedFields = scanSelectionFields();
       const serialized = serializeFormFields(lastScannedFields);
       sendResponse({ action: "FORM_FIELDS_RESULT", data: serialized });
     } else if (message.action === "FILL_FIELDS") {

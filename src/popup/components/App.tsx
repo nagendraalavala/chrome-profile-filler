@@ -191,8 +191,9 @@ export default function App() {
     showStatus("Profile renamed", "success");
   };
 
-  const handleScanForm = async () => {
+  const performScan = async (action: "GET_FORM_FIELDS" | "GET_SELECTION_FIELDS") => {
     setIsScanning(true);
+    const isSelection = action === "GET_SELECTION_FIELDS";
     try {
       const [tab] = await chrome.tabs.query({
         active: true,
@@ -204,12 +205,15 @@ export default function App() {
         return;
       }
 
-      const response = await sendMessageWithInjection(tab.id, {
-        action: "GET_FORM_FIELDS",
-      });
+      const response = await sendMessageWithInjection(tab.id, { action });
 
       if (!response || !response.data) {
-        showStatus("No form fields found on this page", "error");
+        showStatus(
+          isSelection
+            ? "No fields found in selection. Select text on the page first."
+            : "No form fields found on this page",
+          "error"
+        );
         setIsScanning(false);
         return;
       }
@@ -218,7 +222,12 @@ export default function App() {
       setScannedFields(fields);
 
       if (fields.length === 0) {
-        showStatus("No fillable form fields found", "error");
+        showStatus(
+          isSelection
+            ? "No fillable fields in selection. Try selecting a larger area."
+            : "No fillable form fields found",
+          "error"
+        );
         setIsScanning(false);
         return;
       }
@@ -259,7 +268,8 @@ export default function App() {
 
       setMatches(matchResults);
       setActiveTab("preview");
-      showStatus(`Found ${fields.length} fields, ${matchResults.filter((m) => m.selected).length} matched`, "success");
+      const label = isSelection ? "selection" : "page";
+      showStatus(`Found ${fields.length} fields in ${label}, ${matchResults.filter((m) => m.selected).length} matched`, "success");
     } catch (err) {
       showStatus(
         `Scan failed: ${err instanceof Error ? err.message : "Unknown error"}`,
@@ -268,6 +278,9 @@ export default function App() {
     }
     setIsScanning(false);
   };
+
+  const handleScanForm = () => performScan("GET_FORM_FIELDS");
+  const handleScanSelection = () => performScan("GET_SELECTION_FIELDS");
 
   const handleToggleMatch = (index: number) => {
     setMatches((prev) => {
@@ -426,10 +439,18 @@ export default function App() {
           )}
           <button
             className="header-btn"
+            onClick={handleScanSelection}
+            disabled={isScanning}
+            title="Scan only the highlighted/selected area"
+          >
+            {isScanning ? "..." : "Scan Selection"}
+          </button>
+          <button
+            className="header-btn"
             onClick={handleScanForm}
             disabled={isScanning}
           >
-            {isScanning ? "Scanning..." : "Scan Form"}
+            {isScanning ? "..." : "Scan Form"}
           </button>
         </div>
       </div>
@@ -500,9 +521,14 @@ export default function App() {
             {matches.length === 0 ? (
               <div className="no-results">
                 <p>No scan results yet.</p>
-                <button className="scan-btn" onClick={handleScanForm}>
-                  Scan Current Page
-                </button>
+                <div className="scan-btn-row">
+                  <button className="scan-btn" onClick={handleScanSelection}>
+                    Scan Selection
+                  </button>
+                  <button className="scan-btn" onClick={handleScanForm}>
+                    Scan Full Page
+                  </button>
+                </div>
               </div>
             ) : (
               <PreviewTable

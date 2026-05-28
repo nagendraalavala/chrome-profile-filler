@@ -582,9 +582,15 @@ body {
   border-color: #4361ee;
 }
 
-/* Scan button */
+/* Scan buttons */
+.scan-btn-row {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+
 .scan-btn {
-  width: 100%;
+  flex: 1;
   padding: 12px;
   background: white;
   border: 1px dashed #4361ee;
@@ -593,7 +599,6 @@ body {
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  margin: 8px 0;
   transition: all 0.2s;
 }
 
