@@ -558,6 +558,96 @@ function scanFileInputs(): FormFieldInfo[] {
   return fields;
 }
 
+/**
+ * Scan template text and tables for attachment instructions
+ * (e.g. "Attach Resume", "Upload CV", "Resume/CV:" in a table row).
+ * Creates virtual file-input fields pointing to the compose area's file input
+ * or the compose area itself for drag-and-drop.
+ */
+function scanAttachmentInstructions(): FormFieldInfo[] {
+  const fields: FormFieldInfo[] = [];
+  const attachKeywords = /\b(attach|upload|send|include|provide)\b.*\b(resume|cv|curriculum.?vitae|cover.?letter|document|certificate|transcript|passport|id.?card|photo)\b/i;
+  const attachLabelPattern = /\b(resume|cv|curriculum.?vitae|cover.?letter)\b/i;
+
+  // Find the Gmail/compose file input to use as the target
+  let fileInput: HTMLInputElement | null = null;
+  const allFileInputs = document.querySelectorAll<HTMLInputElement>("input[type='file']");
+  for (const fi of Array.from(allFileInputs)) {
+    const isCompose = fi.closest("[role='dialog']") || fi.closest(".compose") ||
+                      fi.closest("[data-action='composenew']") || fi.closest(".dC") ||
+                      fi.closest("[contenteditable='true']")?.parentElement;
+    if (isCompose) {
+      fileInput = fi;
+      break;
+    }
+  }
+  if (!fileInput) return fields;
+
+  // Scan contenteditable areas for attachment keywords
+  const editables = document.querySelectorAll<HTMLElement>(
+    "[contenteditable='true'], [contenteditable=''], [role='textbox']"
+  );
+
+  const foundLabels = new Set<string>();
+
+  for (const editable of Array.from(editables)) {
+    // Check table cells
+    const tables = editable.querySelectorAll("table");
+    for (const table of Array.from(tables)) {
+      const rows = table.querySelectorAll("tr");
+      for (const row of Array.from(rows)) {
+        const cells = row.querySelectorAll("td, th");
+        if (cells.length < 1) continue;
+        const cellText = (cells[0].textContent || "").trim();
+        if (attachLabelPattern.test(cellText)) {
+          const label = cellText.replace(/[:\s*]+$/, "").trim();
+          if (!foundLabels.has(label.toLowerCase())) {
+            foundLabels.add(label.toLowerCase());
+            fields.push({
+              element: fileInput,
+              name: label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
+              id: "",
+              label,
+              type: "file",
+              placeholder: "",
+              sectionHeading: "",
+              autocomplete: "",
+              isFileInput: true,
+              acceptTypes: fileInput.getAttribute("accept") || "",
+            });
+          }
+        }
+      }
+    }
+
+    // Check plain text for attachment instructions
+    const text = editable.textContent || "";
+    if (attachKeywords.test(text)) {
+      const labelMatch = text.match(attachLabelPattern);
+      if (labelMatch) {
+        const label = labelMatch[0];
+        if (!foundLabels.has(label.toLowerCase())) {
+          foundLabels.add(label.toLowerCase());
+          fields.push({
+            element: fileInput,
+            name: label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
+            id: "",
+            label,
+            type: "file",
+            placeholder: "",
+            sectionHeading: "",
+            autocomplete: "",
+            isFileInput: true,
+            acceptTypes: fileInput.getAttribute("accept") || "",
+          });
+        }
+      }
+    }
+  }
+
+  return fields;
+}
+
 function scanFormFields(): FormFieldInfo[] {
   const selector = "input, textarea, select";
   const elements = document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(selector);
@@ -604,6 +694,15 @@ function scanFormFields(): FormFieldInfo[] {
   // Scan file input fields for attachment support
   const fileFields = scanFileInputs();
   fields.push(...fileFields);
+
+  // Scan template text for attachment instructions (e.g. "attach resume")
+  const attachInstructions = scanAttachmentInstructions();
+  const existingFileElements = new WeakSet<Element>(fileFields.map((f) => f.element));
+  for (const ai of attachInstructions) {
+    if (!existingFileElements.has(ai.element)) {
+      fields.push(ai);
+    }
+  }
 
   return fields;
 }

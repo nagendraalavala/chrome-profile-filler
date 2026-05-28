@@ -568,9 +568,32 @@ export function matchFields(
       }
     }
 
+    // 8b. For third-party sections (References), try sub-key matching:
+    // If a profile field has a multi-line value containing key-value pairs,
+    // check if the form label matches one of those inner keys.
+    if (inThirdPartySection && (!bestMatch || bestScore < 0.3)) {
+      const normLabel = normalize(formField.label || formField.templateLabel || "");
+      if (normLabel) {
+        for (const profileField of regularFields) {
+          if (!profileField.value || !profileField.value.includes("\n")) continue;
+          const lines = profileField.value.split("\n").map((l) => l.trim()).filter(Boolean);
+          for (const line of lines) {
+            const m = line.match(/^(?:\d+\)\s*)?([^:|-]+?)\s*[:|-]\s*.+$/);
+            if (!m) continue;
+            const lineKey = normalize(m[1].trim());
+            if (lineKey === normLabel) {
+              bestMatch = profileField;
+              bestScore = 0.7;
+              break;
+            }
+          }
+          if (bestMatch && bestScore >= 0.7) break;
+        }
+      }
+    }
+
     if (bestMatch && bestScore >= 0.3) {
       const hasValue = !!(bestMatch.value && bestMatch.value.trim());
-      // Don't auto-select in third-party sections unless explicitly a reference field
       const autoSelect = hasValue && bestScore >= 0.6 && !inThirdPartySection;
       results.push({
         formFieldName: formField.name || formField.id,
