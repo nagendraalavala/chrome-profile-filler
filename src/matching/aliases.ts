@@ -161,6 +161,15 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   "emailId": [
     "email_id", "email", "email_address", "e_mail",
   ],
+  "dateOfBirth": [
+    "dob", "date_of_birth", "birthday", "birth_date", "birthdate",
+    "bday", "born_on",
+  ],
+  "graduationYear": [
+    "graduation_year", "grad_year", "passing_year",
+    "year_of_graduation", "completion_year", "batch",
+    "qualification_with_passing_year",
+  ],
 
   // Documents / Attachments
   "documents.resume": [
