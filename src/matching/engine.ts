@@ -516,14 +516,11 @@ export function matchFields(
 ): MatchResult[] {
   const results: MatchResult[] = [];
 
-  // Separate attachment-capable fields from regular profile fields
-  const attachmentFields = profileFields.filter((f) => f.isAttachment);
   const regularFields = profileFields.filter((f) => !f.isAttachment);
 
   for (const formField of formFields) {
     const signature = getFieldSignature(formField);
-    const isFileField = formField.isFileInput || formField.type === "file";
-    const candidatePool = isFileField ? attachmentFields : regularFields;
+    const candidatePool = regularFields;
 
     // 1. Check saved site mappings first
     const savedMapping = siteMappings.find(
@@ -544,8 +541,6 @@ export function matchFields(
           selected: hasValue,
           group: getGroupPrefix(matched.dotKey) || undefined,
           sectionHeading: formField.sectionHeading,
-          isAttachment: matched.isAttachment,
-          attachment: matched.attachment,
         });
         continue;
       }
@@ -605,15 +600,13 @@ export function matchFields(
         selected: autoSelect,
         group: getGroupPrefix(bestMatch.dotKey) || undefined,
         sectionHeading: formField.sectionHeading,
-        isAttachment: bestMatch.isAttachment,
-        attachment: bestMatch.attachment,
       });
       continue;
     }
 
     // 9. Try composite matching (combine multiple profile fields)
     // Skip composite/split matching in third-party sections
-    if (!isFileField && !inThirdPartySection) {
+    if (!inThirdPartySection) {
       const composite = tryCompositeMatch(formField, regularFields);
       if (composite) {
         const hasValue = !!(composite.value && composite.value.trim());

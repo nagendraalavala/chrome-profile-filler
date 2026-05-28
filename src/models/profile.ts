@@ -48,8 +48,6 @@ export interface MatchResult {
   selected: boolean;
   group?: string;
   sectionHeading?: string;
-  isAttachment?: boolean;
-  attachment?: DocumentInfo;
 }
 
 export interface FormFieldInfo {
@@ -62,8 +60,6 @@ export interface FormFieldInfo {
   sectionHeading: string;
   autocomplete: string;
   isContentEditable?: boolean;
-  isFileInput?: boolean;
-  acceptTypes?: string;
   isTemplateField?: boolean;
   templateLabel?: string;
   templateFormat?: "colon" | "star" | "tab" | "dash" | "pipe" | "arrow" | "equals" | "underscore" | "bare" | "table";

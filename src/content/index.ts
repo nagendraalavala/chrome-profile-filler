@@ -597,137 +597,6 @@ function scanIframeFields(): FormFieldInfo[] {
 // Main scan: combines standard inputs + contenteditable + iframes
 // ---------------------------------------------------------------------------
 
-function scanFileInputs(): FormFieldInfo[] {
-  const fields: FormFieldInfo[] = [];
-  // Find all file inputs including hidden ones (Gmail uses hidden file inputs for attachments)
-  const fileInputs = document.querySelectorAll<HTMLInputElement>("input[type='file']");
-
-  fileInputs.forEach((el) => {
-    // For Gmail/Outlook, include hidden file inputs near compose areas
-    const isGmailFileInput = el.closest("[role='dialog']") || el.closest(".compose") ||
-                             el.closest("[data-action='composenew']") || el.closest(".dC");
-    if (!isVisible(el) && !isGmailFileInput) return;
-
-    fields.push({
-      element: el,
-      name: el.getAttribute("name") || "attachment",
-      id: el.getAttribute("id") || "",
-      label: findLabel(el) || "Attachment",
-      type: "file",
-      placeholder: "",
-      sectionHeading: findSectionHeading(el),
-      autocomplete: "",
-      isFileInput: true,
-      acceptTypes: el.getAttribute("accept") || "",
-    });
-  });
-
-  return fields;
-}
-
-/**
- * Scan template text and tables for attachment instructions
- * (e.g. "Attach Resume", "Upload CV", "Resume/CV:" in a table row).
- * Creates virtual file-input fields pointing to the compose area's file input
- * or the compose area itself for drag-and-drop.
- */
-function scanAttachmentInstructions(): FormFieldInfo[] {
-  const fields: FormFieldInfo[] = [];
-  const attachKeywords = /\b(attach|upload|send|include|provide)\b.*\b(resume|cv|curriculum.?vitae|cover.?letter|document|certificate|transcript|passport|id.?card|photo)\b/i;
-  const attachLabelPattern = /\b(resume|cv|curriculum.?vitae|cover.?letter)\b/i;
-
-  // Find a target element for the virtual attachment field.
-  // Prefer a file input near compose area; fall back to compose area itself.
-  // The actual fill will dynamically search for file inputs at fill time.
-  let targetElement: HTMLElement | null = null;
-  const allFileInputs = document.querySelectorAll<HTMLInputElement>("input[type='file']");
-  for (const fi of Array.from(allFileInputs)) {
-    const isCompose = fi.closest("[role='dialog']") || fi.closest(".compose") ||
-                      fi.closest("[data-action='composenew']") || fi.closest(".dC") ||
-                      fi.closest("[contenteditable='true']")?.parentElement;
-    if (isCompose) {
-      targetElement = fi;
-      break;
-    }
-  }
-  // Fallback: use ANY file input on the page
-  if (!targetElement && allFileInputs.length > 0) {
-    targetElement = allFileInputs[0];
-  }
-  // Last fallback: use the compose area (fillAttachment will search for file inputs at fill time)
-  if (!targetElement) {
-    targetElement = document.querySelector<HTMLElement>(
-      "[role='textbox'][contenteditable='true'], .editable[contenteditable='true'], [contenteditable='true'][aria-label]"
-    );
-  }
-  if (!targetElement) return fields;
-  const targetIsFileInput = targetElement instanceof HTMLInputElement && targetElement.type === "file";
-
-  // Scan contenteditable areas for attachment keywords
-  const editables = document.querySelectorAll<HTMLElement>(
-    "[contenteditable='true'], [contenteditable=''], [role='textbox']"
-  );
-
-  const foundLabels = new Set<string>();
-
-  for (const editable of Array.from(editables)) {
-    // Check table cells
-    const tables = editable.querySelectorAll("table");
-    for (const table of Array.from(tables)) {
-      const rows = table.querySelectorAll("tr");
-      for (const row of Array.from(rows)) {
-        const cells = row.querySelectorAll("td, th");
-        if (cells.length < 1) continue;
-        const cellText = (cells[0].textContent || "").trim();
-        if (attachLabelPattern.test(cellText)) {
-          const label = cellText.replace(/[:\s*]+$/, "").trim();
-          if (!foundLabels.has(label.toLowerCase())) {
-            foundLabels.add(label.toLowerCase());
-            fields.push({
-              element: targetElement,
-              name: label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
-              id: "",
-              label,
-              type: "file",
-              placeholder: "",
-              sectionHeading: "",
-              autocomplete: "",
-              isFileInput: targetIsFileInput,
-              acceptTypes: "",
-            });
-          }
-        }
-      }
-    }
-
-    // Check plain text for attachment instructions
-    const text = editable.textContent || "";
-    if (attachKeywords.test(text)) {
-      const labelMatch = text.match(attachLabelPattern);
-      if (labelMatch) {
-        const label = labelMatch[0];
-        if (!foundLabels.has(label.toLowerCase())) {
-          foundLabels.add(label.toLowerCase());
-          fields.push({
-            element: targetElement,
-            name: label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
-            id: "",
-            label,
-            type: "file",
-            placeholder: "",
-            sectionHeading: "",
-            autocomplete: "",
-            isFileInput: targetIsFileInput,
-            acceptTypes: "",
-          });
-        }
-      }
-    }
-  }
-
-  return fields;
-}
-
 function scanFormFields(): FormFieldInfo[] {
   const selector = "input, textarea, select";
   const elements = document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(selector);
@@ -770,21 +639,6 @@ function scanFormFields(): FormFieldInfo[] {
   // Scan same-origin iframes for fields and editors
   const iframeFields = scanIframeFields();
   fields.push(...iframeFields);
-
-  // Scan file input fields for attachment support
-  const fileFields = scanFileInputs();
-  fields.push(...fileFields);
-
-  // Scan template text for attachment instructions (e.g. "attach resume").
-  // Always add these — they have descriptive labels (e.g. "Resume", "CV")
-  // that match profile attachment keys better than generic "Attachment" labels.
-  const attachInstructions = scanAttachmentInstructions();
-  const existingFileLabels = new Set(fileFields.map((f) => f.label.toLowerCase()));
-  for (const ai of attachInstructions) {
-    if (!existingFileLabels.has(ai.label.toLowerCase())) {
-      fields.push(ai);
-    }
-  }
 
   return fields;
 }
@@ -909,8 +763,6 @@ function serializeFormFields(fields: FormFieldInfo[]): Array<Omit<FormFieldInfo,
     sectionHeading: f.sectionHeading,
     autocomplete: f.autocomplete,
     isContentEditable: f.isContentEditable,
-    isFileInput: f.isFileInput,
-    acceptTypes: f.acceptTypes,
     isTemplateField: f.isTemplateField,
     templateLabel: f.templateLabel,
     templateFormat: f.templateFormat,
@@ -920,131 +772,6 @@ function serializeFormFields(fields: FormFieldInfo[]): Array<Omit<FormFieldInfo,
 // ---------------------------------------------------------------------------
 // Fill logic: standard inputs, selects, contenteditable, iframes, files
 // ---------------------------------------------------------------------------
-
-function dataUrlToFile(dataUrl: string, fileName: string): File {
-  const [header, base64Data] = dataUrl.split(",");
-  const mimeMatch = header.match(/:(.*?);/);
-  const mimeType = mimeMatch ? mimeMatch[1] : "application/octet-stream";
-  const byteString = atob(base64Data);
-  const ab = new ArrayBuffer(byteString.length);
-  const ia = new Uint8Array(ab);
-  for (let i = 0; i < byteString.length; i++) {
-    ia[i] = byteString.charCodeAt(i);
-  }
-  return new File([ab], fileName, { type: mimeType });
-}
-
-function fillFileInput(
-  element: HTMLInputElement,
-  dataUrl: string,
-  fileName: string
-): boolean {
-  try {
-    const file = dataUrlToFile(dataUrl, fileName);
-    const dt = new DataTransfer();
-    dt.items.add(file);
-    element.files = dt.files;
-    element.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
-    element.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Drop a file onto an element using drag-and-drop events.
- */
-function dropFileOnElement(
-  element: HTMLElement,
-  dataUrl: string,
-  fileName: string
-): boolean {
-  try {
-    const file = dataUrlToFile(dataUrl, fileName);
-    const dt = new DataTransfer();
-    dt.items.add(file);
-
-    element.dispatchEvent(new DragEvent("dragenter", {
-      bubbles: true, cancelable: true, dataTransfer: dt,
-    }));
-    element.dispatchEvent(new DragEvent("dragover", {
-      bubbles: true, cancelable: true, dataTransfer: dt,
-    }));
-    element.dispatchEvent(new DragEvent("drop", {
-      bubbles: true, cancelable: true, dataTransfer: dt,
-    }));
-
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Robust attachment fill for Gmail/Outlook compose areas.
- * Tries multiple strategies to attach a file:
- * 1. Direct file input assignment on the provided element
- * 2. Search all file inputs on the page and try each
- * 3. Drag-and-drop on compose area and body
- * 4. Download fallback — saves the file so user can manually attach
- */
-function fillAttachment(
-  element: HTMLElement,
-  dataUrl: string,
-  fileName: string
-): boolean {
-  // Strategy 1: direct file input if element is one
-  if (element instanceof HTMLInputElement && element.type === "file") {
-    fillFileInput(element, dataUrl, fileName);
-  }
-
-  // Strategy 2: find ALL file inputs on the page and try each
-  const allFileInputs = document.querySelectorAll<HTMLInputElement>("input[type='file']");
-  for (const fi of Array.from(allFileInputs)) {
-    fillFileInput(fi, dataUrl, fileName);
-  }
-
-  // Strategy 3: drag-and-drop on the compose area
-  const composeArea =
-    element.closest("[contenteditable='true']") ||
-    document.querySelector("[role='textbox'][contenteditable='true']") ||
-    document.querySelector("[contenteditable='true'][aria-label]");
-  if (composeArea) {
-    dropFileOnElement(composeArea as HTMLElement, dataUrl, fileName);
-  }
-
-  // Strategy 4: drag-and-drop on document body (some clients listen here)
-  dropFileOnElement(document.body, dataUrl, fileName);
-
-  // Strategy 5: download the file so user can manually attach
-  // This is the reliable fallback for Gmail and other clients that
-  // don't accept programmatic file assignment.
-  try {
-    chrome.runtime.sendMessage(
-      { action: "DOWNLOAD_ATTACHMENT", dataUrl, fileName },
-      () => { /* download initiated */ }
-    );
-  } catch {
-    // Fallback: use blob URL download if messaging fails
-    try {
-      const file = dataUrlToFile(dataUrl, fileName);
-      const blobUrl = URL.createObjectURL(file);
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = fileName;
-      a.style.display = "none";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(blobUrl);
-    } catch {
-      // ignore
-    }
-  }
-
-  return true; // always return true — file is at least downloaded
-}
 
 function fillContentEditable(element: HTMLElement, value: string): void {
   element.focus();
@@ -1418,20 +1145,13 @@ chrome.runtime.onMessage.addListener(
       const fillData = message.data as Array<{
         index: number;
         value: string;
-        isAttachment?: boolean;
-        dataUrl?: string;
-        fileName?: string;
       }>;
       let filledCount = 0;
 
       for (const item of fillData) {
         if (item.index >= 0 && item.index < lastScannedFields.length) {
           const field = lastScannedFields[item.index];
-          if (item.isAttachment && item.dataUrl && item.fileName) {
-            if (fillAttachment(field.element, item.dataUrl, item.fileName)) {
-              filledCount++;
-            }
-          } else if (field.isTemplateField && field.templateFormat === "table") {
+          if (field.isTemplateField && field.templateFormat === "table") {
             const cellValue = field.templateLabel
               ? extractSubValue(item.value, field.templateLabel)
               : item.value;

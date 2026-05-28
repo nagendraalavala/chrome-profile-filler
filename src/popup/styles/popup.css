@@ -852,3 +852,33 @@ body {
     min-height: 100px;
   }
 }
+
+/* Import Keys */
+.import-keys-row {
+  display: flex;
+  gap: 6px;
+  padding: 8px 4px;
+  border-top: 1px solid #e2e6ec;
+}
+
+.import-keys-btn {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px dashed #4361ee;
+  background: #f0f3ff;
+  color: #4361ee;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.import-keys-btn:hover:not(:disabled) {
+  background: #dde3ff;
+}
+
+.import-keys-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
