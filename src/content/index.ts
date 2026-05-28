@@ -572,6 +572,19 @@ function scanFormFields(): FormFieldInfo[] {
  * Scan only the user's selected/highlighted region of the page.
  * Finds the nearest common ancestor of the selection and scans within it.
  */
+function selectionIntersectsField(
+  selection: Selection,
+  field: FormFieldInfo,
+): boolean {
+  // For table fields, check if the ROW intersects the selection
+  // (user may select the label cell, not the value cell)
+  if (field.templateFormat === "table") {
+    const row = field.element.closest("tr");
+    if (row) return selection.containsNode(row, true);
+  }
+  return selection.containsNode(field.element, true);
+}
+
 function scanSelectionFields(): FormFieldInfo[] {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
@@ -617,10 +630,10 @@ function scanSelectionFields(): FormFieldInfo[] {
     });
   });
 
-  // Scan tables within the selection
+  // Scan tables within the selection (check row intersection for table fields)
   const tableFields = scanTableFields(container);
   for (const tf of tableFields) {
-    if (selection.containsNode(tf.element, true)) {
+    if (selectionIntersectsField(selection, tf)) {
       fields.push(tf);
     }
   }
@@ -631,18 +644,16 @@ function scanSelectionFields(): FormFieldInfo[] {
   ) as HTMLElement | null;
 
   if (editableAncestor) {
-    // The selection is inside a contenteditable - scan template fields within it
     const tblFields = scanTableFields(editableAncestor);
     const templateFields = scanTemplateFields(editableAncestor);
     const existingElements = new WeakSet<Element>(fields.map((f) => f.element));
 
     for (const f of [...tblFields, ...templateFields]) {
-      if (!existingElements.has(f.element) && selection.containsNode(f.element, true)) {
+      if (!existingElements.has(f.element) && selectionIntersectsField(selection, f)) {
         fields.push(f);
       }
     }
   } else {
-    // Check for contenteditable elements within the selection
     const editables = container.querySelectorAll<HTMLElement>(
       "[contenteditable='true'], [contenteditable=''], [role='textbox']"
     );
@@ -656,7 +667,7 @@ function scanSelectionFields(): FormFieldInfo[] {
       const templateFields = scanTemplateFields(el);
 
       for (const f of [...tblFields, ...templateFields]) {
-        if (!existingElements.has(f.element)) {
+        if (!existingElements.has(f.element) && selectionIntersectsField(selection, f)) {
           fields.push(f);
         }
       }
