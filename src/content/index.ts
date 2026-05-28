@@ -266,23 +266,27 @@ function isSectionHeaderRow(row: Element): string | null {
   const cells = row.querySelectorAll("td, th");
   if (cells.length === 0) return null;
 
-  // Single-cell rows or rows where only the first cell has text
-  const firstText = (cells[0].textContent || "").trim();
-  const restEmpty = Array.from(cells)
-    .slice(1)
-    .every((c) => !(c.textContent || "").trim());
+  const firstCell = cells[0] as HTMLElement;
+  const firstText = (firstCell.textContent || "").trim();
+  if (!firstText) return null;
 
-  if (firstText && (cells.length === 1 || restEmpty)) {
-    // Check if it looks like a section header (ends with : or is a short label)
-    const cleaned = firstText.replace(/[:\s*]+$/, "").trim();
-    if (
-      cleaned.length >= 3 &&
-      cleaned.length <= 60 &&
-      /^[A-Za-z]/.test(cleaned) &&
-      !/^\d+\)/.test(cleaned)
-    ) {
-      return cleaned;
-    }
+  // Only treat as section header if the row truly spans the full width:
+  // 1. Single cell only, OR
+  // 2. First cell has colspan covering all columns
+  const colspan = parseInt(firstCell.getAttribute("colspan") || "1", 10);
+  const isSingleCell = cells.length === 1;
+  const isSpanning = colspan >= 2;
+
+  if (!isSingleCell && !isSpanning) return null;
+
+  const cleaned = firstText.replace(/[:\s*]+$/, "").trim();
+  if (
+    cleaned.length >= 3 &&
+    cleaned.length <= 60 &&
+    /^[A-Za-z]/.test(cleaned) &&
+    !/^\d+\)/.test(cleaned)
+  ) {
+    return cleaned;
   }
   return null;
 }
