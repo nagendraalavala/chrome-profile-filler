@@ -392,6 +392,14 @@ body {
   border-bottom: none;
 }
 
+.section-tag {
+  display: block;
+  font-size: 10px;
+  color: #6b7280;
+  font-weight: 400;
+  margin-bottom: 1px;
+}
+
 .confidence-badge {
   display: inline-block;
   padding: 1px 6px;
@@ -843,4 +851,55 @@ body {
     font-size: 13px;
     min-height: 100px;
   }
+}
+
+/* Import Keys */
+.import-keys-row {
+  display: flex;
+  gap: 6px;
+  padding: 8px 4px;
+  border-top: 1px solid #e2e6ec;
+}
+
+.import-keys-btn {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px dashed #4361ee;
+  background: #f0f3ff;
+  color: #4361ee;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.import-keys-btn:hover:not(:disabled) {
+  background: #dde3ff;
+}
+
+.import-keys-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Insert field button (between top-level fields) */
+.insert-field-btn {
+  display: block;
+  width: 100%;
+  padding: 1px 0;
+  border: none;
+  background: transparent;
+  color: #aab;
+  font-size: 14px;
+  cursor: pointer;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.insert-field-btn:hover {
+  opacity: 1;
+  color: #4361ee;
+  background: #f0f3ff;
 }

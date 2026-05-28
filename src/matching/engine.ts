@@ -1,5 +1,5 @@
 import { FlattenedField, MatchResult, FormFieldInfo, SiteMapping } from "../models/profile";
-import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS, SYNONYM_GROUPS, TOKEN_ABBREVIATIONS, COMPOSITE_RULES, CompositeRule } from "./aliases";
+import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS, SYNONYM_GROUPS, TOKEN_ABBREVIATIONS, COMPOSITE_RULES, CompositeRule, THIRD_PARTY_SECTION_PATTERNS, CANDIDATE_ONLY_KEYS } from "./aliases";
 
 function normalize(str: string): string {
   return str
@@ -60,6 +60,24 @@ function stripParenthetical(str: string): string {
 function getGroupPrefix(dotKey: string): string {
   const parts = dotKey.split(".");
   return parts.length > 1 ? parts[0] : "";
+}
+
+function isThirdPartySection(sectionHeading: string): boolean {
+  if (!sectionHeading) return false;
+  const norm = sectionHeading.toLowerCase();
+  return THIRD_PARTY_SECTION_PATTERNS.some((p) => norm.includes(p));
+}
+
+const candidateOnlySet = new Set(
+  CANDIDATE_ONLY_KEYS.map((k) => normalize(k))
+);
+
+function isCandidateOnlyKey(dotKey: string): boolean {
+  const normKey = normalize(dotKey);
+  if (candidateOnlySet.has(normKey)) return true;
+  const lastSeg = dotKey.split(".").pop() || "";
+  if (candidateOnlySet.has(normalize(lastSeg))) return true;
+  return false;
 }
 
 function getSectionBoost(
@@ -498,14 +516,11 @@ export function matchFields(
 ): MatchResult[] {
   const results: MatchResult[] = [];
 
-  // Separate attachment-capable fields from regular profile fields
-  const attachmentFields = profileFields.filter((f) => f.isAttachment);
   const regularFields = profileFields.filter((f) => !f.isAttachment);
 
   for (const formField of formFields) {
     const signature = getFieldSignature(formField);
-    const isFileField = formField.isFileInput || formField.type === "file";
-    const candidatePool = isFileField ? attachmentFields : regularFields;
+    const candidatePool = regularFields;
 
     // 1. Check saved site mappings first
     const savedMapping = siteMappings.find(
@@ -525,8 +540,7 @@ export function matchFields(
           confidence: 1.0,
           selected: hasValue,
           group: getGroupPrefix(matched.dotKey) || undefined,
-          isAttachment: matched.isAttachment,
-          attachment: matched.attachment,
+          sectionHeading: formField.sectionHeading,
         });
         continue;
       }
@@ -535,8 +549,13 @@ export function matchFields(
     // 2-8. Score all profile fields and pick the best
     let bestMatch: FlattenedField | null = null;
     let bestScore = 0;
+    const inThirdPartySection = isThirdPartySection(formField.sectionHeading);
 
     for (const profileField of candidatePool) {
+      // Skip candidate-only keys when field is in a third-party section
+      if (inThirdPartySection && isCandidateOnlyKey(profileField.dotKey)) {
+        continue;
+      }
       const score = scoreCandidate(formField, profileField.dotKey);
       if (score > bestScore) {
         bestScore = score;
@@ -544,8 +563,33 @@ export function matchFields(
       }
     }
 
+    // 8b. For third-party sections (References), try sub-key matching:
+    // If a profile field has a multi-line value containing key-value pairs,
+    // check if the form label matches one of those inner keys.
+    if (inThirdPartySection && (!bestMatch || bestScore < 0.3)) {
+      const normLabel = normalize(formField.label || formField.templateLabel || "");
+      if (normLabel) {
+        for (const profileField of regularFields) {
+          if (!profileField.value || !profileField.value.includes("\n")) continue;
+          const lines = profileField.value.split("\n").map((l) => l.trim()).filter(Boolean);
+          for (const line of lines) {
+            const m = line.match(/^(?:\d+\)\s*)?([^:|-]+?)\s*[:|-]\s*.+$/);
+            if (!m) continue;
+            const lineKey = normalize(m[1].trim());
+            if (lineKey === normLabel) {
+              bestMatch = profileField;
+              bestScore = 0.7;
+              break;
+            }
+          }
+          if (bestMatch && bestScore >= 0.7) break;
+        }
+      }
+    }
+
     if (bestMatch && bestScore >= 0.3) {
       const hasValue = !!(bestMatch.value && bestMatch.value.trim());
+      const autoSelect = hasValue && bestScore >= 0.6 && !inThirdPartySection;
       results.push({
         formFieldName: formField.name || formField.id,
         formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
@@ -553,16 +597,16 @@ export function matchFields(
         profileKey: bestMatch.dotKey,
         value: bestMatch.value,
         confidence: Math.round(bestScore * 100) / 100,
-        selected: hasValue && bestScore >= 0.6,
+        selected: autoSelect,
         group: getGroupPrefix(bestMatch.dotKey) || undefined,
-        isAttachment: bestMatch.isAttachment,
-        attachment: bestMatch.attachment,
+        sectionHeading: formField.sectionHeading,
       });
       continue;
     }
 
     // 9. Try composite matching (combine multiple profile fields)
-    if (!isFileField) {
+    // Skip composite/split matching in third-party sections
+    if (!inThirdPartySection) {
       const composite = tryCompositeMatch(formField, regularFields);
       if (composite) {
         const hasValue = !!(composite.value && composite.value.trim());
@@ -575,6 +619,7 @@ export function matchFields(
           confidence: composite.confidence,
           selected: hasValue,
           group: undefined,
+          sectionHeading: formField.sectionHeading,
         });
         continue;
       }
@@ -592,6 +637,7 @@ export function matchFields(
           confidence: split.confidence,
           selected: hasValue,
           group: undefined,
+          sectionHeading: formField.sectionHeading,
         });
         continue;
       }
@@ -607,6 +653,7 @@ export function matchFields(
       confidence: 0,
       selected: false,
       group: undefined,
+      sectionHeading: formField.sectionHeading,
     });
   }
 

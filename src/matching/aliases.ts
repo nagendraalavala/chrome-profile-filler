@@ -439,6 +439,34 @@ export const COMPOSITE_RULES: CompositeRule[] = [
   },
 ];
 
+/**
+ * Section heading patterns that indicate fields belong to a "third-party"
+ * context (e.g. references, emergency contacts) and should NOT match
+ * the candidate's own profile fields like email, phone, name.
+ */
+export const THIRD_PARTY_SECTION_PATTERNS: string[] = [
+  "reference", "references", "professional reference",
+  "project reference", "amex project reference",
+];
+
+/**
+ * Profile keys that should NOT be used when the form field is
+ * under a third-party section (e.g. references).
+ * These are the candidate's own fields — not reference fields.
+ */
+export const CANDIDATE_ONLY_KEYS: string[] = [
+  "firstName", "lastName", "email", "phone", "emailId", "contactNumber",
+  "social.linkedin", "social.github", "social.twitter",
+  "dateOfBirth", "ssn", "passportNumber", "visaStatus",
+  "currentLocation", "willingToRelocate", "availability",
+  "address.line1", "address.line2", "address.city", "address.state",
+  "address.zip", "address.country",
+  "education.school", "education.degree", "education.major",
+  "education.graduationYear",
+  "workExperience.company", "workExperience.title", "workExperience.years",
+  "skypeId", "interviewAvailability",
+];
+
 /** Section heading keywords that boost scores for grouped fields. */
 export const SECTION_BOOST_KEYWORDS: Record<string, string[]> = {
   "address": [

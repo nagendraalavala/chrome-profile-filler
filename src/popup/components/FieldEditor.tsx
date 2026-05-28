@@ -319,62 +319,74 @@ export default function FieldEditor({
     onChange(fields.filter((_, i) => i !== index));
   };
 
+  const insertFieldAfter = (index: number) => {
+    const newField: ProfileField = {
+      id: generateId(),
+      key: "newField",
+      label: "New Field",
+      type: "FIELD",
+      value: "",
+    };
+    const updated = [...fields];
+    updated.splice(index + 1, 0, newField);
+    onChange(updated);
+  };
+
+  const renderInsertBtn = (index: number) => (
+    <button
+      className="insert-field-btn"
+      onClick={() => insertFieldAfter(index)}
+      title="Insert field here"
+    >
+      +
+    </button>
+  );
+
   return (
     <div>
       {fields.map((field, index) => {
         if (field.type === "GROUP") {
           return (
-            <GroupEditor
-              key={field.id}
-              field={field}
-              onUpdate={(updated) => updateField(index, updated)}
-              onDelete={() => deleteField(index)}
-              depth={depth}
-            />
+            <React.Fragment key={field.id}>
+              <GroupEditor
+                field={field}
+                onUpdate={(updated) => updateField(index, updated)}
+                onDelete={() => deleteField(index)}
+                depth={depth}
+              />
+              {depth === 0 && renderInsertBtn(index)}
+            </React.Fragment>
           );
         }
 
         if (field.type === "ATTACHMENT") {
-          if (depth === 0) {
-            return (
-              <div className="flat-field" key={field.id}>
-                <AttachmentRow
-                  field={field}
-                  onUpdate={(updated) => updateField(index, updated)}
-                  onDelete={() => deleteField(index)}
-                />
-              </div>
-            );
-          }
-          return (
+          const row = (
             <AttachmentRow
-              key={field.id}
               field={field}
               onUpdate={(updated) => updateField(index, updated)}
               onDelete={() => deleteField(index)}
             />
           );
-        }
-
-        if (depth === 0) {
           return (
-            <div className="flat-field" key={field.id}>
-              <FieldRow
-                field={field}
-                onUpdate={(updated) => updateField(index, updated)}
-                onDelete={() => deleteField(index)}
-              />
-            </div>
+            <React.Fragment key={field.id}>
+              {depth === 0 ? <div className="flat-field">{row}</div> : row}
+              {depth === 0 && renderInsertBtn(index)}
+            </React.Fragment>
           );
         }
 
-        return (
+        const row = (
           <FieldRow
-            key={field.id}
             field={field}
             onUpdate={(updated) => updateField(index, updated)}
             onDelete={() => deleteField(index)}
           />
+        );
+        return (
+          <React.Fragment key={field.id}>
+            {depth === 0 ? <div className="flat-field">{row}</div> : row}
+            {depth === 0 && renderInsertBtn(index)}
+          </React.Fragment>
         );
       })}
     </div>

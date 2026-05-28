@@ -262,6 +262,50 @@ function scanTemplateFields(element: HTMLElement): FormFieldInfo[] {
 // (e.g. email templates with tabular layout: left cell = label, right cell = value)
 // ---------------------------------------------------------------------------
 
+function isSectionHeaderRow(row: Element): string | null {
+  const cells = row.querySelectorAll("td, th");
+  if (cells.length === 0) return null;
+
+  const firstCell = cells[0] as HTMLElement;
+  const firstText = (firstCell.textContent || "").trim();
+  if (!firstText) return null;
+
+  // Only treat as section header if the row truly spans the full width:
+  // 1. Single cell only, OR
+  // 2. First cell has colspan covering all columns
+  const colspan = parseInt(firstCell.getAttribute("colspan") || "1", 10);
+  const isSingleCell = cells.length === 1;
+  const isSpanning = colspan >= 2;
+
+  if (!isSingleCell && !isSpanning) return null;
+
+  const cleaned = firstText.replace(/[:\s*]+$/, "").trim();
+  if (
+    cleaned.length >= 3 &&
+    cleaned.length <= 60 &&
+    /^[A-Za-z]/.test(cleaned) &&
+    !/^\d+\)/.test(cleaned)
+  ) {
+    return cleaned;
+  }
+  return null;
+}
+
+/**
+ * Detect if a row is a table header (column titles).
+ * A header row has text in most cells and looks like column titles,
+ * not data. Used for multi-column tables like skill matrices.
+ */
+function isTableHeaderRow(cells: NodeListOf<Element>): boolean {
+  if (cells.length < 3) return false;
+  let textCells = 0;
+  for (const cell of Array.from(cells)) {
+    const text = (cell.textContent || "").trim();
+    if (text.length >= 2) textCells++;
+  }
+  return textCells >= cells.length;
+}
+
 function scanTableFields(container: HTMLElement): FormFieldInfo[] {
   const fields: FormFieldInfo[] = [];
   const tables = container.querySelectorAll("table");
@@ -284,40 +328,96 @@ function scanTableFields(container: HTMLElement): FormFieldInfo[] {
     // Need at least 2 key-value rows to treat this as a template table
     if (keyValuePairs < 2) continue;
 
-    // Second pass: create field entries
-    for (const row of Array.from(rows)) {
+    // Detect multi-column header row (e.g. "Skill | Year of experience | Rating")
+    let columnHeaders: string[] = [];
+    let headerRowIdx = -1;
+    const rowList = Array.from(rows);
+
+    for (let ri = 0; ri < Math.min(2, rowList.length); ri++) {
+      const cells = rowList[ri].querySelectorAll("td, th");
+      if (isTableHeaderRow(cells)) {
+        columnHeaders = Array.from(cells).map((c) =>
+          (c.textContent || "").trim().replace(/[:\s*]+$/, "").trim()
+        );
+        headerRowIdx = ri;
+        break;
+      }
+    }
+
+    const isMultiColumn = columnHeaders.length >= 3;
+
+    // Second pass: create field entries, tracking inline section headers
+    const tableHeading = findSectionHeading(table as HTMLElement);
+    let currentSection = tableHeading;
+
+    for (let ri = 0; ri < rowList.length; ri++) {
+      const row = rowList[ri];
+      if (ri === headerRowIdx) continue; // Skip header row
+
+      // Check if this row is a section header
+      const sectionHeader = isSectionHeaderRow(row);
+      if (sectionHeader) {
+        currentSection = sectionHeader;
+        continue;
+      }
+
       const cells = row.querySelectorAll("td, th");
       if (cells.length < 2) continue;
 
       const keyCell = cells[0];
-      const valueCell = cells[cells.length - 1];
       const keyText = (keyCell.textContent || "").trim();
 
-      // Skip if key cell is empty, too short, or too long
       if (keyText.length < 2 || keyText.length > 80) continue;
       if (!/^[A-Za-z]/.test(keyText)) continue;
 
-      // Skip if the key cell and value cell are the same (single-cell row)
-      if (keyCell === valueCell) continue;
+      let rowLabel = keyText.replace(/[:\s*]+$/, "").trim();
+      rowLabel = rowLabel.replace(/^\d+\)\s*/, "").trim();
+      if (rowLabel.length < 2) continue;
 
-      // Clean the label: strip trailing colons/stars that might be in the cell
-      const label = keyText.replace(/[:\s*]+$/, "").trim();
-      if (label.length < 2) continue;
+      if (isMultiColumn) {
+        // Multi-column table: create a field for each data column
+        for (let ci = 1; ci < cells.length; ci++) {
+          const valueCell = cells[ci] as HTMLElement;
+          if (valueCell === keyCell) continue;
 
-      fields.push({
-        element: valueCell as HTMLElement,
-        name: label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
-        id: "",
-        label,
-        type: "template-field",
-        placeholder: "",
-        sectionHeading: findSectionHeading(table as HTMLElement),
-        autocomplete: "",
-        isContentEditable: true,
-        isTemplateField: true,
-        templateLabel: label,
-        templateFormat: "table",
-      });
+          const colHeader = ci < columnHeaders.length ? columnHeaders[ci] : `Column ${ci + 1}`;
+          const compositeLabel = `${rowLabel} - ${colHeader}`;
+
+          fields.push({
+            element: valueCell,
+            name: compositeLabel.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
+            id: "",
+            label: compositeLabel,
+            type: "template-field",
+            placeholder: "",
+            sectionHeading: currentSection,
+            autocomplete: "",
+            isContentEditable: true,
+            isTemplateField: true,
+            templateLabel: compositeLabel,
+            templateFormat: "table",
+          });
+        }
+      } else {
+        // Standard 2-column table: key + value
+        const valueCell = cells[cells.length - 1];
+        if (keyCell === valueCell) continue;
+
+        fields.push({
+          element: valueCell as HTMLElement,
+          name: rowLabel.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
+          id: "",
+          label: rowLabel,
+          type: "template-field",
+          placeholder: "",
+          sectionHeading: currentSection,
+          autocomplete: "",
+          isContentEditable: true,
+          isTemplateField: true,
+          templateLabel: rowLabel,
+          templateFormat: "table",
+        });
+      }
     }
   }
 
@@ -355,8 +455,15 @@ function scanContentEditableFields(): FormFieldInfo[] {
     if (tableFields.length > 0) {
       fields.push(...tableFields);
 
-      // Also scan for text-based template patterns outside the tables
-      const templateFields = scanTemplateFields(el);
+      // Also scan for text-based template patterns outside the tables,
+      // but exclude any labels already detected as table fields to
+      // prevent duplicate fills that would corrupt the table HTML.
+      const tableLabels = new Set(tableFields.map((f) =>
+        (f.templateLabel || f.label).toLowerCase()
+      ));
+      const templateFields = scanTemplateFields(el).filter(
+        (tf) => !tableLabels.has((tf.templateLabel || tf.label).toLowerCase())
+      );
       if (templateFields.length > 0) {
         fields.push(...templateFields);
       }
@@ -490,34 +597,6 @@ function scanIframeFields(): FormFieldInfo[] {
 // Main scan: combines standard inputs + contenteditable + iframes
 // ---------------------------------------------------------------------------
 
-function scanFileInputs(): FormFieldInfo[] {
-  const fields: FormFieldInfo[] = [];
-  // Find all file inputs including hidden ones (Gmail uses hidden file inputs for attachments)
-  const fileInputs = document.querySelectorAll<HTMLInputElement>("input[type='file']");
-
-  fileInputs.forEach((el) => {
-    // For Gmail/Outlook, include hidden file inputs near compose areas
-    const isGmailFileInput = el.closest("[role='dialog']") || el.closest(".compose") ||
-                             el.closest("[data-action='composenew']") || el.closest(".dC");
-    if (!isVisible(el) && !isGmailFileInput) return;
-
-    fields.push({
-      element: el,
-      name: el.getAttribute("name") || "attachment",
-      id: el.getAttribute("id") || "",
-      label: findLabel(el) || "Attachment",
-      type: "file",
-      placeholder: "",
-      sectionHeading: findSectionHeading(el),
-      autocomplete: "",
-      isFileInput: true,
-      acceptTypes: el.getAttribute("accept") || "",
-    });
-  });
-
-  return fields;
-}
-
 function scanFormFields(): FormFieldInfo[] {
   const selector = "input, textarea, select";
   const elements = document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(selector);
@@ -560,10 +639,6 @@ function scanFormFields(): FormFieldInfo[] {
   // Scan same-origin iframes for fields and editors
   const iframeFields = scanIframeFields();
   fields.push(...iframeFields);
-
-  // Scan file input fields for attachment support
-  const fileFields = scanFileInputs();
-  fields.push(...fileFields);
 
   return fields;
 }
@@ -688,8 +763,6 @@ function serializeFormFields(fields: FormFieldInfo[]): Array<Omit<FormFieldInfo,
     sectionHeading: f.sectionHeading,
     autocomplete: f.autocomplete,
     isContentEditable: f.isContentEditable,
-    isFileInput: f.isFileInput,
-    acceptTypes: f.acceptTypes,
     isTemplateField: f.isTemplateField,
     templateLabel: f.templateLabel,
     templateFormat: f.templateFormat,
@@ -699,79 +772,6 @@ function serializeFormFields(fields: FormFieldInfo[]): Array<Omit<FormFieldInfo,
 // ---------------------------------------------------------------------------
 // Fill logic: standard inputs, selects, contenteditable, iframes, files
 // ---------------------------------------------------------------------------
-
-function dataUrlToFile(dataUrl: string, fileName: string): File {
-  const [header, base64Data] = dataUrl.split(",");
-  const mimeMatch = header.match(/:(.*?);/);
-  const mimeType = mimeMatch ? mimeMatch[1] : "application/octet-stream";
-  const byteString = atob(base64Data);
-  const ab = new ArrayBuffer(byteString.length);
-  const ia = new Uint8Array(ab);
-  for (let i = 0; i < byteString.length; i++) {
-    ia[i] = byteString.charCodeAt(i);
-  }
-  return new File([ab], fileName, { type: mimeType });
-}
-
-function fillFileInput(
-  element: HTMLInputElement,
-  dataUrl: string,
-  fileName: string
-): boolean {
-  try {
-    const file = dataUrlToFile(dataUrl, fileName);
-    const dt = new DataTransfer();
-    dt.items.add(file);
-    element.files = dt.files;
-    element.dispatchEvent(new Event("change", { bubbles: true }));
-    element.dispatchEvent(new Event("input", { bubbles: true }));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Drop a file onto an element using drag-and-drop events.
- * This works for Gmail/Outlook compose areas where hidden file inputs
- * may not accept direct .files assignment.
- */
-function dropFileOnElement(
-  element: HTMLElement,
-  dataUrl: string,
-  fileName: string
-): boolean {
-  try {
-    const file = dataUrlToFile(dataUrl, fileName);
-    const dt = new DataTransfer();
-    dt.items.add(file);
-
-    const dragEnterEvent = new DragEvent("dragenter", {
-      bubbles: true,
-      cancelable: true,
-      dataTransfer: dt,
-    });
-    element.dispatchEvent(dragEnterEvent);
-
-    const dragOverEvent = new DragEvent("dragover", {
-      bubbles: true,
-      cancelable: true,
-      dataTransfer: dt,
-    });
-    element.dispatchEvent(dragOverEvent);
-
-    const dropEvent = new DragEvent("drop", {
-      bubbles: true,
-      cancelable: true,
-      dataTransfer: dt,
-    });
-    element.dispatchEvent(dropEvent);
-
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function fillContentEditable(element: HTMLElement, value: string): void {
   element.focus();
@@ -902,6 +902,45 @@ function findSeparatorEnd(line: string, format: TemplateFormat): number {
 }
 
 /**
+ * When a profile value is a multi-line block containing key-value pairs
+ * (e.g. "1)Name: ABC\nContact No: 45678\nEmail ID: abc@gmail.com"),
+ * extract just the value for a specific field label.
+ * Returns the extracted value if found, or the original value if not.
+ */
+function extractSubValue(value: string, fieldLabel: string): string {
+  if (!value.includes("\n")) return value;
+
+  const lines = value.split("\n").map((l) => l.trim()).filter(Boolean);
+  // Check if the value contains key-value pairs
+  const kvLines = lines.filter((l) => /^(?:\d+\)\s*)?[A-Za-z][A-Za-z\s]*[:|-]\s*.+/.test(l));
+  if (kvLines.length < 2) return value; // Not a key-value block
+
+  const normLabel = fieldLabel.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Match "Key: Value" or "Key - Value" patterns, with optional leading "1)"
+    const m = line.match(/^(?:\d+\)\s*)?([^:|-]+?)\s*[:|-]\s*(.*)$/);
+    if (!m) continue;
+
+    const lineKey = m[1].trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (lineKey === normLabel) {
+      // Found the matching key; collect value (may span until next key)
+      const parts = [m[2].trim()];
+      for (let j = i + 1; j < lines.length; j++) {
+        // Stop at next key-value line
+        if (/^(?:\d+\)\s*)?[A-Za-z][A-Za-z\s]*[:|-]\s*/.test(lines[j])) break;
+        parts.push(lines[j]);
+      }
+      const extracted = parts.join("\n").trim();
+      if (extracted) return extracted;
+    }
+  }
+
+  return value;
+}
+
+/**
  * Convert a multi-line value to HTML with <br> tags, escaping special chars.
  */
 function valueToHtml(value: string): string {
@@ -961,7 +1000,13 @@ function fillTemplateField(
     }
   }
 
-  // Fallback: line-by-line text replacement
+  // Fallback: line-by-line text replacement.
+  // GUARD: Never use the text/innerHTML fallback on elements containing tables —
+  // setting innerText or innerHTML destroys the table HTML structure.
+  if (element.querySelector("table")) {
+    return false;
+  }
+
   const text = element.innerText || element.textContent || "";
   const lines = text.split("\n");
   const labelLower = templateLabel.toLowerCase();
@@ -1100,35 +1145,21 @@ chrome.runtime.onMessage.addListener(
       const fillData = message.data as Array<{
         index: number;
         value: string;
-        isAttachment?: boolean;
-        dataUrl?: string;
-        fileName?: string;
       }>;
       let filledCount = 0;
 
       for (const item of fillData) {
         if (item.index >= 0 && item.index < lastScannedFields.length) {
           const field = lastScannedFields[item.index];
-          if (item.isAttachment && item.dataUrl && item.fileName) {
-            if (field.element instanceof HTMLInputElement) {
-              // Standard file input
-              if (fillFileInput(field.element, item.dataUrl, item.fileName)) {
-                filledCount++;
-              }
-            } else {
-              // Try drag-and-drop on compose area (Gmail/Outlook)
-              const composeArea = field.element.closest("[contenteditable='true']") ||
-                                  document.querySelector("[role='textbox'][contenteditable='true']") ||
-                                  field.element;
-              if (dropFileOnElement(composeArea as HTMLElement, item.dataUrl, item.fileName)) {
-                filledCount++;
-              }
-            }
-          } else if (field.isTemplateField && field.templateFormat === "table") {
-            fillTableCell(field.element, item.value);
+          if (field.isTemplateField && field.templateFormat === "table") {
+            const cellValue = field.templateLabel
+              ? extractSubValue(item.value, field.templateLabel)
+              : item.value;
+            fillTableCell(field.element, cellValue);
             filledCount++;
           } else if (field.isTemplateField && field.templateLabel) {
-            if (fillTemplateField(field.element, field.templateLabel, item.value, field.templateFormat || "colon")) {
+            const fieldValue = extractSubValue(item.value, field.templateLabel);
+            if (fillTemplateField(field.element, field.templateLabel, fieldValue, field.templateFormat || "colon")) {
               filledCount++;
             }
           } else {

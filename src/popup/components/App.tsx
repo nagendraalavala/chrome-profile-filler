@@ -63,8 +63,6 @@ interface SerializedFormField {
   sectionHeading: string;
   autocomplete: string;
   isContentEditable?: boolean;
-  isFileInput?: boolean;
-  acceptTypes?: string;
   isTemplateField?: boolean;
   templateLabel?: string;
   templateFormat?: string;
@@ -248,8 +246,6 @@ export default function App() {
         sectionHeading: f.sectionHeading,
         autocomplete: f.autocomplete,
         isContentEditable: f.isContentEditable,
-        isFileInput: f.isFileInput,
-        acceptTypes: f.acceptTypes,
         isTemplateField: f.isTemplateField,
         templateLabel: f.templateLabel,
         templateFormat: f.templateFormat as FormFieldInfo["templateFormat"],
@@ -335,9 +331,6 @@ export default function App() {
           return {
             index: fieldIndex,
             value: m.value,
-            isAttachment: m.isAttachment,
-            dataUrl: m.attachment?.dataUrl,
-            fileName: m.attachment?.fileName,
           };
         })
         .filter((d) => d.index >= 0);
@@ -423,10 +416,195 @@ export default function App() {
     await handleFieldsChange([...activeProfile.fields, newGroup]);
   };
 
+  /**
+   * Import keys from the current page: scans the form/template and creates
+   * profile fields from all detected labels. User then fills in values.
+   */
+  const handleImportKeys = async (action: "GET_FORM_FIELDS" | "GET_SELECTION_FIELDS") => {
+    if (!activeProfile) return;
+    setIsScanning(true);
+    const isSelection = action === "GET_SELECTION_FIELDS";
+
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) {
+        showStatus("No active tab found", "error");
+        setIsScanning(false);
+        return;
+      }
+
+      const response = await sendMessageWithInjection(tab.id, { action });
+      if (!response || !response.data) {
+        showStatus(
+          isSelection
+            ? "No fields found in selection"
+            : "No form fields found on this page",
+          "error"
+        );
+        setIsScanning(false);
+        return;
+      }
+
+      const fields = response.data as SerializedFormField[];
+      if (fields.length === 0) {
+        showStatus("No fields to import", "error");
+        setIsScanning(false);
+        return;
+      }
+
+      // Collect existing keys to avoid duplicates
+      const existingKeys = new Set<string>();
+      const collectKeys = (pFields: ProfileField[], prefix = "") => {
+        for (const f of pFields) {
+          const k = prefix ? `${prefix}.${f.key}` : f.key;
+          existingKeys.add(k.toLowerCase());
+          if (f.children) collectKeys(f.children, k);
+        }
+      };
+      collectKeys(activeProfile.fields);
+
+      // Organize fields by section heading, then by multi-column groups
+      interface ImportedField {
+        label: string;
+        section: string;
+        isMultiCol: boolean;
+        rowLabel?: string;
+        colHeader?: string;
+      }
+
+      const imported: ImportedField[] = [];
+      for (const f of fields) {
+        const label = f.templateLabel || f.label;
+        if (!label) continue;
+        const section = f.sectionHeading || "";
+
+        const dashIdx = label.indexOf(" - ");
+        if (dashIdx > 0 && f.templateFormat === "table") {
+          imported.push({
+            label,
+            section,
+            isMultiCol: true,
+            rowLabel: label.substring(0, dashIdx),
+            colHeader: label.substring(dashIdx + 3),
+          });
+        } else {
+          imported.push({ label, section, isMultiCol: false });
+        }
+      }
+
+      const toKey = (s: string) => s.replace(/\s+/g, "").replace(/^./, (c) => c.toLowerCase());
+
+      // Group by section heading
+      const sections = new Map<string, ImportedField[]>();
+      for (const f of imported) {
+        const sec = f.section;
+        if (!sections.has(sec)) sections.set(sec, []);
+        sections.get(sec)!.push(f);
+      }
+
+      const newFields: ProfileField[] = [];
+
+      for (const [section, sectionFields] of sections) {
+        // Build children for this section
+        const children: ProfileField[] = [];
+
+        // Separate multi-column groups and flat fields
+        const multiColMap = new Map<string, ImportedField[]>();
+        const flatFields: ImportedField[] = [];
+        for (const f of sectionFields) {
+          if (f.isMultiCol && f.rowLabel) {
+            if (!multiColMap.has(f.rowLabel)) multiColMap.set(f.rowLabel, []);
+            multiColMap.get(f.rowLabel)!.push(f);
+          } else {
+            flatFields.push(f);
+          }
+        }
+
+        // Add flat fields
+        for (const f of flatFields) {
+          const key = toKey(f.label);
+          if (existingKeys.has(key.toLowerCase())) continue;
+          existingKeys.add(key.toLowerCase());
+          children.push({
+            id: generateId(),
+            key,
+            label: f.label,
+            type: "FIELD",
+            value: "",
+          });
+        }
+
+        // Add multi-column row groups
+        for (const [rowLabel, cols] of multiColMap) {
+          const groupKey = toKey(rowLabel);
+          if (existingKeys.has(groupKey.toLowerCase())) continue;
+          existingKeys.add(groupKey.toLowerCase());
+
+          const rowChildren: ProfileField[] = cols.map((col) => ({
+            id: generateId(),
+            key: toKey(col.colHeader || ""),
+            label: col.colHeader || "",
+            type: "FIELD" as const,
+            value: "",
+          }));
+
+          children.push({
+            id: generateId(),
+            key: groupKey,
+            label: rowLabel,
+            type: "GROUP",
+            children: rowChildren,
+            collapsed: false,
+          });
+        }
+
+        if (children.length === 0) continue;
+
+        if (section) {
+          // Wrap all section fields under a parent group
+          const sectionKey = toKey(section);
+          if (existingKeys.has(sectionKey.toLowerCase())) {
+            // Section group exists — add children as flat fields instead
+            newFields.push(...children);
+          } else {
+            existingKeys.add(sectionKey.toLowerCase());
+            newFields.push({
+              id: generateId(),
+              key: sectionKey,
+              label: section,
+              type: "GROUP",
+              children,
+              collapsed: false,
+            });
+          }
+        } else {
+          // No section heading — add as top-level fields
+          newFields.push(...children);
+        }
+      }
+
+      if (newFields.length === 0) {
+        showStatus("All keys already exist in profile", "success");
+        setIsScanning(false);
+        return;
+      }
+
+      await handleFieldsChange([...activeProfile.fields, ...newFields]);
+      setActiveTab("edit");
+      showStatus(`Imported ${newFields.length} keys from ${isSelection ? "selection" : "page"}`, "success");
+    } catch (err) {
+      showStatus(
+        `Import failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+        "error"
+      );
+    }
+    setIsScanning(false);
+  };
+
   return (
     <div className="app-container">
       <div className="app-header">
-        <h1>Profile Filler</h1>
+        <h1>SmartFill</h1>
         <div className="header-actions">
           {!isFullTab && (
             <button
@@ -511,6 +689,24 @@ export default function App() {
               </button>
               <button className="add-btn" onClick={handleAddTopLevelGroup}>
                 + Group
+              </button>
+            </div>
+            <div className="import-keys-row">
+              <button
+                className="import-keys-btn"
+                onClick={() => handleImportKeys("GET_FORM_FIELDS")}
+                disabled={isScanning}
+                title="Scan the page and auto-add detected field labels as profile keys"
+              >
+                {isScanning ? "Scanning..." : "Import Keys from Page"}
+              </button>
+              <button
+                className="import-keys-btn"
+                onClick={() => handleImportKeys("GET_SELECTION_FIELDS")}
+                disabled={isScanning}
+                title="Scan only the highlighted selection and import keys"
+              >
+                {isScanning ? "..." : "Import from Selection"}
               </button>
             </div>
           </div>

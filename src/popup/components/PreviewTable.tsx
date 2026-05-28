@@ -66,7 +66,12 @@ export default function PreviewTable({
                 onChange={() => onToggle(index)}
               />
             </td>
-            <td title={match.formFieldName}>{match.formFieldLabel}</td>
+            <td title={match.formFieldName}>
+              {match.sectionHeading && (
+                <span className="section-tag">{match.sectionHeading}</span>
+              )}
+              {match.formFieldLabel}
+            </td>
             <td>
               <select
                 className="preview-select"
@@ -82,13 +87,7 @@ export default function PreviewTable({
               </select>
             </td>
             <td>
-              {match.isAttachment && match.attachment ? (
-                <span className="attachment-badge" title={match.attachment.fileName}>
-                  {match.attachment.fileName}
-                </span>
-              ) : (
-                match.value || "—"
-              )}
+              {match.value || "—"}
             </td>
             <td>
               <span
