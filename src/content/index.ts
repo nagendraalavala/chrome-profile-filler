@@ -262,6 +262,31 @@ function scanTemplateFields(element: HTMLElement): FormFieldInfo[] {
 // (e.g. email templates with tabular layout: left cell = label, right cell = value)
 // ---------------------------------------------------------------------------
 
+function isSectionHeaderRow(row: Element): string | null {
+  const cells = row.querySelectorAll("td, th");
+  if (cells.length === 0) return null;
+
+  // Single-cell rows or rows where only the first cell has text
+  const firstText = (cells[0].textContent || "").trim();
+  const restEmpty = Array.from(cells)
+    .slice(1)
+    .every((c) => !(c.textContent || "").trim());
+
+  if (firstText && (cells.length === 1 || restEmpty)) {
+    // Check if it looks like a section header (ends with : or is a short label)
+    const cleaned = firstText.replace(/[:\s*]+$/, "").trim();
+    if (
+      cleaned.length >= 3 &&
+      cleaned.length <= 60 &&
+      /^[A-Za-z]/.test(cleaned) &&
+      !/^\d+\)/.test(cleaned)
+    ) {
+      return cleaned;
+    }
+  }
+  return null;
+}
+
 function scanTableFields(container: HTMLElement): FormFieldInfo[] {
   const fields: FormFieldInfo[] = [];
   const tables = container.querySelectorAll("table");
@@ -284,8 +309,18 @@ function scanTableFields(container: HTMLElement): FormFieldInfo[] {
     // Need at least 2 key-value rows to treat this as a template table
     if (keyValuePairs < 2) continue;
 
-    // Second pass: create field entries
+    // Second pass: create field entries, tracking inline section headers
+    const tableHeading = findSectionHeading(table as HTMLElement);
+    let currentSection = tableHeading;
+
     for (const row of Array.from(rows)) {
+      // Check if this row is a section header (e.g. "References:", "Candidate Details:")
+      const sectionHeader = isSectionHeaderRow(row);
+      if (sectionHeader) {
+        currentSection = sectionHeader;
+        continue;
+      }
+
       const cells = row.querySelectorAll("td, th");
       if (cells.length < 2) continue;
 
@@ -300,8 +335,9 @@ function scanTableFields(container: HTMLElement): FormFieldInfo[] {
       // Skip if the key cell and value cell are the same (single-cell row)
       if (keyCell === valueCell) continue;
 
-      // Clean the label: strip trailing colons/stars that might be in the cell
-      const label = keyText.replace(/[:\s*]+$/, "").trim();
+      // Clean the label: strip trailing colons/stars and leading numbering
+      let label = keyText.replace(/[:\s*]+$/, "").trim();
+      label = label.replace(/^\d+\)\s*/, "").trim();
       if (label.length < 2) continue;
 
       fields.push({
@@ -311,7 +347,7 @@ function scanTableFields(container: HTMLElement): FormFieldInfo[] {
         label,
         type: "template-field",
         placeholder: "",
-        sectionHeading: findSectionHeading(table as HTMLElement),
+        sectionHeading: currentSection,
         autocomplete: "",
         isContentEditable: true,
         isTemplateField: true,

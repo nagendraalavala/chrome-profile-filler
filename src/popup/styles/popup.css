@@ -392,6 +392,14 @@ body {
   border-bottom: none;
 }
 
+.section-tag {
+  display: block;
+  font-size: 10px;
+  color: #6b7280;
+  font-weight: 400;
+  margin-bottom: 1px;
+}
+
 .confidence-badge {
   display: inline-block;
   padding: 1px 6px;

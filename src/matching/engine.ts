@@ -1,5 +1,5 @@
 import { FlattenedField, MatchResult, FormFieldInfo, SiteMapping } from "../models/profile";
-import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS, SYNONYM_GROUPS, TOKEN_ABBREVIATIONS, COMPOSITE_RULES, CompositeRule } from "./aliases";
+import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS, SYNONYM_GROUPS, TOKEN_ABBREVIATIONS, COMPOSITE_RULES, CompositeRule, THIRD_PARTY_SECTION_PATTERNS, CANDIDATE_ONLY_KEYS } from "./aliases";
 
 function normalize(str: string): string {
   return str
@@ -60,6 +60,24 @@ function stripParenthetical(str: string): string {
 function getGroupPrefix(dotKey: string): string {
   const parts = dotKey.split(".");
   return parts.length > 1 ? parts[0] : "";
+}
+
+function isThirdPartySection(sectionHeading: string): boolean {
+  if (!sectionHeading) return false;
+  const norm = sectionHeading.toLowerCase();
+  return THIRD_PARTY_SECTION_PATTERNS.some((p) => norm.includes(p));
+}
+
+const candidateOnlySet = new Set(
+  CANDIDATE_ONLY_KEYS.map((k) => normalize(k))
+);
+
+function isCandidateOnlyKey(dotKey: string): boolean {
+  const normKey = normalize(dotKey);
+  if (candidateOnlySet.has(normKey)) return true;
+  const lastSeg = dotKey.split(".").pop() || "";
+  if (candidateOnlySet.has(normalize(lastSeg))) return true;
+  return false;
 }
 
 function getSectionBoost(
@@ -525,6 +543,7 @@ export function matchFields(
           confidence: 1.0,
           selected: hasValue,
           group: getGroupPrefix(matched.dotKey) || undefined,
+          sectionHeading: formField.sectionHeading,
           isAttachment: matched.isAttachment,
           attachment: matched.attachment,
         });
@@ -535,8 +554,13 @@ export function matchFields(
     // 2-8. Score all profile fields and pick the best
     let bestMatch: FlattenedField | null = null;
     let bestScore = 0;
+    const inThirdPartySection = isThirdPartySection(formField.sectionHeading);
 
     for (const profileField of candidatePool) {
+      // Skip candidate-only keys when field is in a third-party section
+      if (inThirdPartySection && isCandidateOnlyKey(profileField.dotKey)) {
+        continue;
+      }
       const score = scoreCandidate(formField, profileField.dotKey);
       if (score > bestScore) {
         bestScore = score;
@@ -546,6 +570,8 @@ export function matchFields(
 
     if (bestMatch && bestScore >= 0.3) {
       const hasValue = !!(bestMatch.value && bestMatch.value.trim());
+      // Don't auto-select in third-party sections unless explicitly a reference field
+      const autoSelect = hasValue && bestScore >= 0.6 && !inThirdPartySection;
       results.push({
         formFieldName: formField.name || formField.id,
         formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
@@ -553,8 +579,9 @@ export function matchFields(
         profileKey: bestMatch.dotKey,
         value: bestMatch.value,
         confidence: Math.round(bestScore * 100) / 100,
-        selected: hasValue && bestScore >= 0.6,
+        selected: autoSelect,
         group: getGroupPrefix(bestMatch.dotKey) || undefined,
+        sectionHeading: formField.sectionHeading,
         isAttachment: bestMatch.isAttachment,
         attachment: bestMatch.attachment,
       });
@@ -562,7 +589,8 @@ export function matchFields(
     }
 
     // 9. Try composite matching (combine multiple profile fields)
-    if (!isFileField) {
+    // Skip composite/split matching in third-party sections
+    if (!isFileField && !inThirdPartySection) {
       const composite = tryCompositeMatch(formField, regularFields);
       if (composite) {
         const hasValue = !!(composite.value && composite.value.trim());
@@ -575,6 +603,7 @@ export function matchFields(
           confidence: composite.confidence,
           selected: hasValue,
           group: undefined,
+          sectionHeading: formField.sectionHeading,
         });
         continue;
       }
@@ -592,6 +621,7 @@ export function matchFields(
           confidence: split.confidence,
           selected: hasValue,
           group: undefined,
+          sectionHeading: formField.sectionHeading,
         });
         continue;
       }
@@ -607,6 +637,7 @@ export function matchFields(
       confidence: 0,
       selected: false,
       group: undefined,
+      sectionHeading: formField.sectionHeading,
     });
   }
 

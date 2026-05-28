@@ -47,6 +47,7 @@ export interface MatchResult {
   confidence: number;
   selected: boolean;
   group?: string;
+  sectionHeading?: string;
   isAttachment?: boolean;
   attachment?: DocumentInfo;
 }
