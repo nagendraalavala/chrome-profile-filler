@@ -942,6 +942,45 @@ function findSeparatorEnd(line: string, format: TemplateFormat): number {
 }
 
 /**
+ * When a profile value is a multi-line block containing key-value pairs
+ * (e.g. "1)Name: ABC\nContact No: 45678\nEmail ID: abc@gmail.com"),
+ * extract just the value for a specific field label.
+ * Returns the extracted value if found, or the original value if not.
+ */
+function extractSubValue(value: string, fieldLabel: string): string {
+  if (!value.includes("\n")) return value;
+
+  const lines = value.split("\n").map((l) => l.trim()).filter(Boolean);
+  // Check if the value contains key-value pairs
+  const kvLines = lines.filter((l) => /^(?:\d+\)\s*)?[A-Za-z][A-Za-z\s]*[:|-]\s*.+/.test(l));
+  if (kvLines.length < 2) return value; // Not a key-value block
+
+  const normLabel = fieldLabel.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Match "Key: Value" or "Key - Value" patterns, with optional leading "1)"
+    const m = line.match(/^(?:\d+\)\s*)?([^:|-]+?)\s*[:|-]\s*(.*)$/);
+    if (!m) continue;
+
+    const lineKey = m[1].trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (lineKey === normLabel) {
+      // Found the matching key; collect value (may span until next key)
+      const parts = [m[2].trim()];
+      for (let j = i + 1; j < lines.length; j++) {
+        // Stop at next key-value line
+        if (/^(?:\d+\)\s*)?[A-Za-z][A-Za-z\s]*[:|-]\s*/.test(lines[j])) break;
+        parts.push(lines[j]);
+      }
+      const extracted = parts.join("\n").trim();
+      if (extracted) return extracted;
+    }
+  }
+
+  return value;
+}
+
+/**
  * Convert a multi-line value to HTML with <br> tags, escaping special chars.
  */
 function valueToHtml(value: string): string {
@@ -1165,10 +1204,14 @@ chrome.runtime.onMessage.addListener(
               }
             }
           } else if (field.isTemplateField && field.templateFormat === "table") {
-            fillTableCell(field.element, item.value);
+            const cellValue = field.templateLabel
+              ? extractSubValue(item.value, field.templateLabel)
+              : item.value;
+            fillTableCell(field.element, cellValue);
             filledCount++;
           } else if (field.isTemplateField && field.templateLabel) {
-            if (fillTemplateField(field.element, field.templateLabel, item.value, field.templateFormat || "colon")) {
+            const fieldValue = extractSubValue(item.value, field.templateLabel);
+            if (fillTemplateField(field.element, field.templateLabel, fieldValue, field.templateFormat || "colon")) {
               filledCount++;
             }
           } else {
