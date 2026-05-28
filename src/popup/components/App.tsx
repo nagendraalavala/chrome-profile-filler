@@ -463,70 +463,124 @@ export default function App() {
       };
       collectKeys(activeProfile.fields);
 
-      // Group multi-column table fields by row label
-      const multiColGroups = new Map<string, { colHeader: string; label: string }[]>();
-      const flatLabels: string[] = [];
+      // Organize fields by section heading, then by multi-column groups
+      interface ImportedField {
+        label: string;
+        section: string;
+        isMultiCol: boolean;
+        rowLabel?: string;
+        colHeader?: string;
+      }
 
+      const imported: ImportedField[] = [];
       for (const f of fields) {
         const label = f.templateLabel || f.label;
         if (!label) continue;
+        const section = f.sectionHeading || "";
 
-        // Check if this is a multi-column composite label (e.g. "Java - Year of experience")
         const dashIdx = label.indexOf(" - ");
         if (dashIdx > 0 && f.templateFormat === "table") {
-          const rowLabel = label.substring(0, dashIdx);
-          const colHeader = label.substring(dashIdx + 3);
-          if (!multiColGroups.has(rowLabel)) {
-            multiColGroups.set(rowLabel, []);
-          }
-          multiColGroups.get(rowLabel)!.push({ colHeader, label });
+          imported.push({
+            label,
+            section,
+            isMultiCol: true,
+            rowLabel: label.substring(0, dashIdx),
+            colHeader: label.substring(dashIdx + 3),
+          });
         } else {
-          flatLabels.push(label);
+          imported.push({ label, section, isMultiCol: false });
         }
+      }
+
+      const toKey = (s: string) => s.replace(/\s+/g, "").replace(/^./, (c) => c.toLowerCase());
+
+      // Group by section heading
+      const sections = new Map<string, ImportedField[]>();
+      for (const f of imported) {
+        const sec = f.section;
+        if (!sections.has(sec)) sections.set(sec, []);
+        sections.get(sec)!.push(f);
       }
 
       const newFields: ProfileField[] = [];
 
-      // Add flat fields (2-column tables and standard fields)
-      for (const label of flatLabels) {
-        const key = label.replace(/\s+/g, "").replace(/^./, (c) => c.toLowerCase());
-        if (existingKeys.has(key.toLowerCase())) continue;
-        existingKeys.add(key.toLowerCase());
+      for (const [section, sectionFields] of sections) {
+        // Build children for this section
+        const children: ProfileField[] = [];
 
-        newFields.push({
-          id: generateId(),
-          key,
-          label,
-          type: "FIELD",
-          value: "",
-        });
-      }
+        // Separate multi-column groups and flat fields
+        const multiColMap = new Map<string, ImportedField[]>();
+        const flatFields: ImportedField[] = [];
+        for (const f of sectionFields) {
+          if (f.isMultiCol && f.rowLabel) {
+            if (!multiColMap.has(f.rowLabel)) multiColMap.set(f.rowLabel, []);
+            multiColMap.get(f.rowLabel)!.push(f);
+          } else {
+            flatFields.push(f);
+          }
+        }
 
-      // Add multi-column groups (e.g. Java → { Year of experience, Rating out of 10 })
-      for (const [rowLabel, columns] of multiColGroups) {
-        const groupKey = rowLabel.replace(/\s+/g, "").replace(/^./, (c) => c.toLowerCase());
-        if (existingKeys.has(groupKey.toLowerCase())) continue;
-        existingKeys.add(groupKey.toLowerCase());
-
-        const children: ProfileField[] = columns.map((col) => {
-          const childKey = col.colHeader.replace(/\s+/g, "").replace(/^./, (c) => c.toLowerCase());
-          return {
+        // Add flat fields
+        for (const f of flatFields) {
+          const key = toKey(f.label);
+          if (existingKeys.has(key.toLowerCase())) continue;
+          existingKeys.add(key.toLowerCase());
+          children.push({
             id: generateId(),
-            key: childKey,
-            label: col.colHeader,
+            key,
+            label: f.label,
+            type: "FIELD",
+            value: "",
+          });
+        }
+
+        // Add multi-column row groups
+        for (const [rowLabel, cols] of multiColMap) {
+          const groupKey = toKey(rowLabel);
+          if (existingKeys.has(groupKey.toLowerCase())) continue;
+          existingKeys.add(groupKey.toLowerCase());
+
+          const rowChildren: ProfileField[] = cols.map((col) => ({
+            id: generateId(),
+            key: toKey(col.colHeader || ""),
+            label: col.colHeader || "",
             type: "FIELD" as const,
             value: "",
-          };
-        });
+          }));
 
-        newFields.push({
-          id: generateId(),
-          key: groupKey,
-          label: rowLabel,
-          type: "GROUP",
-          children,
-          collapsed: false,
-        });
+          children.push({
+            id: generateId(),
+            key: groupKey,
+            label: rowLabel,
+            type: "GROUP",
+            children: rowChildren,
+            collapsed: false,
+          });
+        }
+
+        if (children.length === 0) continue;
+
+        if (section) {
+          // Wrap all section fields under a parent group
+          const sectionKey = toKey(section);
+          if (existingKeys.has(sectionKey.toLowerCase())) {
+            // Section group exists — add children as flat fields instead
+            newFields.push(...children);
+          } else {
+            existingKeys.add(sectionKey.toLowerCase());
+            newFields.push({
+              id: generateId(),
+              key: sectionKey,
+              label: section,
+              type: "GROUP",
+              children,
+              collapsed: false,
+            });
+          }
+        } else {
+          // No section heading — add as top-level fields
+          newFields.push(...children);
+        }
       }
 
       if (newFields.length === 0) {
