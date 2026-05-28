@@ -291,6 +291,21 @@ function isSectionHeaderRow(row: Element): string | null {
   return null;
 }
 
+/**
+ * Detect if a row is a table header (column titles).
+ * A header row has text in most cells and looks like column titles,
+ * not data. Used for multi-column tables like skill matrices.
+ */
+function isTableHeaderRow(cells: NodeListOf<Element>): boolean {
+  if (cells.length < 3) return false;
+  let textCells = 0;
+  for (const cell of Array.from(cells)) {
+    const text = (cell.textContent || "").trim();
+    if (text.length >= 2) textCells++;
+  }
+  return textCells >= cells.length;
+}
+
 function scanTableFields(container: HTMLElement): FormFieldInfo[] {
   const fields: FormFieldInfo[] = [];
   const tables = container.querySelectorAll("table");
@@ -313,12 +328,33 @@ function scanTableFields(container: HTMLElement): FormFieldInfo[] {
     // Need at least 2 key-value rows to treat this as a template table
     if (keyValuePairs < 2) continue;
 
+    // Detect multi-column header row (e.g. "Skill | Year of experience | Rating")
+    let columnHeaders: string[] = [];
+    let headerRowIdx = -1;
+    const rowList = Array.from(rows);
+
+    for (let ri = 0; ri < Math.min(2, rowList.length); ri++) {
+      const cells = rowList[ri].querySelectorAll("td, th");
+      if (isTableHeaderRow(cells)) {
+        columnHeaders = Array.from(cells).map((c) =>
+          (c.textContent || "").trim().replace(/[:\s*]+$/, "").trim()
+        );
+        headerRowIdx = ri;
+        break;
+      }
+    }
+
+    const isMultiColumn = columnHeaders.length >= 3;
+
     // Second pass: create field entries, tracking inline section headers
     const tableHeading = findSectionHeading(table as HTMLElement);
     let currentSection = tableHeading;
 
-    for (const row of Array.from(rows)) {
-      // Check if this row is a section header (e.g. "References:", "Candidate Details:")
+    for (let ri = 0; ri < rowList.length; ri++) {
+      const row = rowList[ri];
+      if (ri === headerRowIdx) continue; // Skip header row
+
+      // Check if this row is a section header
       const sectionHeader = isSectionHeaderRow(row);
       if (sectionHeader) {
         currentSection = sectionHeader;
@@ -329,35 +365,59 @@ function scanTableFields(container: HTMLElement): FormFieldInfo[] {
       if (cells.length < 2) continue;
 
       const keyCell = cells[0];
-      const valueCell = cells[cells.length - 1];
       const keyText = (keyCell.textContent || "").trim();
 
-      // Skip if key cell is empty, too short, or too long
       if (keyText.length < 2 || keyText.length > 80) continue;
       if (!/^[A-Za-z]/.test(keyText)) continue;
 
-      // Skip if the key cell and value cell are the same (single-cell row)
-      if (keyCell === valueCell) continue;
+      let rowLabel = keyText.replace(/[:\s*]+$/, "").trim();
+      rowLabel = rowLabel.replace(/^\d+\)\s*/, "").trim();
+      if (rowLabel.length < 2) continue;
 
-      // Clean the label: strip trailing colons/stars and leading numbering
-      let label = keyText.replace(/[:\s*]+$/, "").trim();
-      label = label.replace(/^\d+\)\s*/, "").trim();
-      if (label.length < 2) continue;
+      if (isMultiColumn) {
+        // Multi-column table: create a field for each data column
+        for (let ci = 1; ci < cells.length; ci++) {
+          const valueCell = cells[ci] as HTMLElement;
+          if (valueCell === keyCell) continue;
 
-      fields.push({
-        element: valueCell as HTMLElement,
-        name: label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
-        id: "",
-        label,
-        type: "template-field",
-        placeholder: "",
-        sectionHeading: currentSection,
-        autocomplete: "",
-        isContentEditable: true,
-        isTemplateField: true,
-        templateLabel: label,
-        templateFormat: "table",
-      });
+          const colHeader = ci < columnHeaders.length ? columnHeaders[ci] : `Column ${ci + 1}`;
+          const compositeLabel = `${rowLabel} - ${colHeader}`;
+
+          fields.push({
+            element: valueCell,
+            name: compositeLabel.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
+            id: "",
+            label: compositeLabel,
+            type: "template-field",
+            placeholder: "",
+            sectionHeading: currentSection,
+            autocomplete: "",
+            isContentEditable: true,
+            isTemplateField: true,
+            templateLabel: compositeLabel,
+            templateFormat: "table",
+          });
+        }
+      } else {
+        // Standard 2-column table: key + value
+        const valueCell = cells[cells.length - 1];
+        if (keyCell === valueCell) continue;
+
+        fields.push({
+          element: valueCell as HTMLElement,
+          name: rowLabel.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
+          id: "",
+          label: rowLabel,
+          type: "template-field",
+          placeholder: "",
+          sectionHeading: currentSection,
+          autocomplete: "",
+          isContentEditable: true,
+          isTemplateField: true,
+          templateLabel: rowLabel,
+          templateFormat: "table",
+        });
+      }
     }
   }
 
