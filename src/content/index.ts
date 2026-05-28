@@ -576,10 +576,10 @@ function scanAttachmentInstructions(): FormFieldInfo[] {
   const attachKeywords = /\b(attach|upload|send|include|provide)\b.*\b(resume|cv|curriculum.?vitae|cover.?letter|document|certificate|transcript|passport|id.?card|photo)\b/i;
   const attachLabelPattern = /\b(resume|cv|curriculum.?vitae|cover.?letter)\b/i;
 
-  // Find the target element: prefer a file input near compose area,
-  // fall back to the compose area itself for drag-and-drop attachment.
+  // Find a target element for the virtual attachment field.
+  // Prefer a file input near compose area; fall back to compose area itself.
+  // The actual fill will dynamically search for file inputs at fill time.
   let targetElement: HTMLElement | null = null;
-  let isFileInput = false;
   const allFileInputs = document.querySelectorAll<HTMLInputElement>("input[type='file']");
   for (const fi of Array.from(allFileInputs)) {
     const isCompose = fi.closest("[role='dialog']") || fi.closest(".compose") ||
@@ -587,20 +587,21 @@ function scanAttachmentInstructions(): FormFieldInfo[] {
                       fi.closest("[contenteditable='true']")?.parentElement;
     if (isCompose) {
       targetElement = fi;
-      isFileInput = true;
       break;
     }
   }
-  // Fallback: use the compose area contenteditable for drag-and-drop
+  // Fallback: use ANY file input on the page
+  if (!targetElement && allFileInputs.length > 0) {
+    targetElement = allFileInputs[0];
+  }
+  // Last fallback: use the compose area (fillAttachment will search for file inputs at fill time)
   if (!targetElement) {
-    const composeArea = document.querySelector<HTMLElement>(
+    targetElement = document.querySelector<HTMLElement>(
       "[role='textbox'][contenteditable='true'], .editable[contenteditable='true'], [contenteditable='true'][aria-label]"
     );
-    if (composeArea) {
-      targetElement = composeArea;
-    }
   }
   if (!targetElement) return fields;
+  const targetIsFileInput = targetElement instanceof HTMLInputElement && targetElement.type === "file";
 
   // Scan contenteditable areas for attachment keywords
   const editables = document.querySelectorAll<HTMLElement>(
@@ -631,7 +632,7 @@ function scanAttachmentInstructions(): FormFieldInfo[] {
               placeholder: "",
               sectionHeading: "",
               autocomplete: "",
-              isFileInput,
+              isFileInput: targetIsFileInput,
               acceptTypes: "",
             });
           }
@@ -656,7 +657,7 @@ function scanAttachmentInstructions(): FormFieldInfo[] {
             placeholder: "",
             sectionHeading: "",
             autocomplete: "",
-            isFileInput,
+            isFileInput: targetIsFileInput,
             acceptTypes: "",
           });
         }
@@ -883,8 +884,8 @@ function fillFileInput(
     const dt = new DataTransfer();
     dt.items.add(file);
     element.files = dt.files;
-    element.dispatchEvent(new Event("change", { bubbles: true }));
-    element.dispatchEvent(new Event("input", { bubbles: true }));
+    element.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    element.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
     return true;
   } catch {
     return false;
@@ -893,8 +894,6 @@ function fillFileInput(
 
 /**
  * Drop a file onto an element using drag-and-drop events.
- * This works for Gmail/Outlook compose areas where hidden file inputs
- * may not accept direct .files assignment.
  */
 function dropFileOnElement(
   element: HTMLElement,
@@ -906,31 +905,59 @@ function dropFileOnElement(
     const dt = new DataTransfer();
     dt.items.add(file);
 
-    const dragEnterEvent = new DragEvent("dragenter", {
-      bubbles: true,
-      cancelable: true,
-      dataTransfer: dt,
-    });
-    element.dispatchEvent(dragEnterEvent);
-
-    const dragOverEvent = new DragEvent("dragover", {
-      bubbles: true,
-      cancelable: true,
-      dataTransfer: dt,
-    });
-    element.dispatchEvent(dragOverEvent);
-
-    const dropEvent = new DragEvent("drop", {
-      bubbles: true,
-      cancelable: true,
-      dataTransfer: dt,
-    });
-    element.dispatchEvent(dropEvent);
+    element.dispatchEvent(new DragEvent("dragenter", {
+      bubbles: true, cancelable: true, dataTransfer: dt,
+    }));
+    element.dispatchEvent(new DragEvent("dragover", {
+      bubbles: true, cancelable: true, dataTransfer: dt,
+    }));
+    element.dispatchEvent(new DragEvent("drop", {
+      bubbles: true, cancelable: true, dataTransfer: dt,
+    }));
 
     return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * Robust attachment fill for Gmail/Outlook compose areas.
+ * Tries multiple strategies to attach a file:
+ * 1. Direct file input assignment on the provided element
+ * 2. Search all file inputs on the page and try each
+ * 3. Drag-and-drop on compose area
+ * 4. Drag-and-drop on document body
+ */
+function fillAttachment(
+  element: HTMLElement,
+  dataUrl: string,
+  fileName: string
+): boolean {
+  // Strategy 1: direct file input if element is one
+  if (element instanceof HTMLInputElement && element.type === "file") {
+    if (fillFileInput(element, dataUrl, fileName)) return true;
+  }
+
+  // Strategy 2: find ALL file inputs on the page and try each
+  const allFileInputs = document.querySelectorAll<HTMLInputElement>("input[type='file']");
+  for (const fi of Array.from(allFileInputs)) {
+    if (fillFileInput(fi, dataUrl, fileName)) return true;
+  }
+
+  // Strategy 3: drag-and-drop on the compose area
+  const composeArea =
+    element.closest("[contenteditable='true']") ||
+    document.querySelector("[role='textbox'][contenteditable='true']") ||
+    document.querySelector("[contenteditable='true'][aria-label]");
+  if (composeArea) {
+    if (dropFileOnElement(composeArea as HTMLElement, dataUrl, fileName)) return true;
+  }
+
+  // Strategy 4: drag-and-drop on document body (some clients listen here)
+  if (dropFileOnElement(document.body, dataUrl, fileName)) return true;
+
+  return false;
 }
 
 function fillContentEditable(element: HTMLElement, value: string): void {
@@ -1315,19 +1342,8 @@ chrome.runtime.onMessage.addListener(
         if (item.index >= 0 && item.index < lastScannedFields.length) {
           const field = lastScannedFields[item.index];
           if (item.isAttachment && item.dataUrl && item.fileName) {
-            if (field.element instanceof HTMLInputElement) {
-              // Standard file input
-              if (fillFileInput(field.element, item.dataUrl, item.fileName)) {
-                filledCount++;
-              }
-            } else {
-              // Try drag-and-drop on compose area (Gmail/Outlook)
-              const composeArea = field.element.closest("[contenteditable='true']") ||
-                                  document.querySelector("[role='textbox'][contenteditable='true']") ||
-                                  field.element;
-              if (dropFileOnElement(composeArea as HTMLElement, item.dataUrl, item.fileName)) {
-                filledCount++;
-              }
+            if (fillAttachment(field.element, item.dataUrl, item.fileName)) {
+              filledCount++;
             }
           } else if (field.isTemplateField && field.templateFormat === "table") {
             const cellValue = field.templateLabel
