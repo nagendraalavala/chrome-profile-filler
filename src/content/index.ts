@@ -697,6 +697,194 @@ function serializeFormFields(fields: FormFieldInfo[]): Array<Omit<FormFieldInfo,
 }
 
 // ---------------------------------------------------------------------------
+// Date format detection and conversion
+// ---------------------------------------------------------------------------
+
+interface ParsedDate {
+  year?: number;
+  month?: number;
+  day?: number;
+}
+
+function parseDate(value: string): ParsedDate | null {
+  const v = value.trim();
+
+  // YYYY-MM-DD or YYYY/MM/DD
+  let m = v.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (m) return { year: +m[1], month: +m[2], day: +m[3] };
+
+  // MM/DD/YYYY or MM-DD-YYYY
+  m = v.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (m) return { year: +m[3], month: +m[1], day: +m[2] };
+
+  // MM/DD/YY or MM-DD-YY
+  m = v.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2})$/);
+  if (m) {
+    const yr = +m[3];
+    return { year: yr >= 50 ? 1900 + yr : 2000 + yr, month: +m[1], day: +m[2] };
+  }
+
+  // MM/YYYY or MM-YYYY
+  m = v.match(/^(\d{1,2})[-/](\d{4})$/);
+  if (m) return { year: +m[2], month: +m[1] };
+
+  // MM/YY or MM-YY
+  m = v.match(/^(\d{1,2})[-/](\d{2})$/);
+  if (m) {
+    const yr = +m[2];
+    return { year: yr >= 50 ? 1900 + yr : 2000 + yr, month: +m[1] };
+  }
+
+  // YYYY only
+  m = v.match(/^(\d{4})$/);
+  if (m) return { year: +m[1] };
+
+  // "Month DD, YYYY" or "Month YYYY"
+  const months: Record<string, number> = {
+    jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
+    apr: 4, april: 4, may: 5, jun: 6, june: 6,
+    jul: 7, july: 7, aug: 8, august: 8, sep: 9, september: 9,
+    oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
+  };
+  m = v.match(/^([a-zA-Z]+)\s+(\d{1,2}),?\s+(\d{4})$/);
+  if (m) {
+    const mon = months[m[1].toLowerCase()];
+    if (mon) return { year: +m[3], month: mon, day: +m[2] };
+  }
+  m = v.match(/^([a-zA-Z]+)\s+(\d{4})$/);
+  if (m) {
+    const mon = months[m[1].toLowerCase()];
+    if (mon) return { year: +m[2], month: mon };
+  }
+
+  return null;
+}
+
+function detectDateFormat(fieldHint: string): string | null {
+  const h = fieldHint.toLowerCase().replace(/\s+/g, "");
+  if (h.includes("mm/dd/yyyy") || h.includes("mm-dd-yyyy")) return "MM/DD/YYYY";
+  if (h.includes("dd/mm/yyyy") || h.includes("dd-mm-yyyy")) return "DD/MM/YYYY";
+  if (h.includes("yyyy-mm-dd") || h.includes("yyyy/mm/dd")) return "YYYY-MM-DD";
+  if (h.includes("mm/yyyy") || h.includes("mm-yyyy")) return "MM/YYYY";
+  if (h.includes("mm/yy") || h.includes("mm-yy")) return "MM/YY";
+  if (h.includes("yyyy")) return "YYYY";
+  return null;
+}
+
+function formatDate(parsed: ParsedDate, format: string): string {
+  const pad2 = (n: number) => n.toString().padStart(2, "0");
+  const yr = parsed.year || 2000;
+  const mo = parsed.month || 1;
+  const dy = parsed.day || 1;
+  const yy = (yr % 100).toString().padStart(2, "0");
+
+  switch (format) {
+    case "MM/DD/YYYY": return `${pad2(mo)}/${pad2(dy)}/${yr}`;
+    case "DD/MM/YYYY": return `${pad2(dy)}/${pad2(mo)}/${yr}`;
+    case "YYYY-MM-DD": return `${yr}-${pad2(mo)}-${pad2(dy)}`;
+    case "MM/YYYY": return `${pad2(mo)}/${yr}`;
+    case "MM/YY": return `${pad2(mo)}/${yy}`;
+    case "YYYY": return `${yr}`;
+    default: return `${pad2(mo)}/${pad2(dy)}/${yr}`;
+  }
+}
+
+function adaptDateValue(value: string, element: HTMLElement): string {
+  const parsed = parseDate(value);
+  if (!parsed) return value;
+
+  // Try to detect expected format from placeholder, label, or input type
+  const hints: string[] = [];
+  if (element instanceof HTMLInputElement) {
+    if (element.type === "date") return formatDate(parsed, "YYYY-MM-DD");
+    if (element.type === "month") return formatDate(parsed, "YYYY-MM-DD").slice(0, 7);
+    if (element.placeholder) hints.push(element.placeholder);
+    if (element.title) hints.push(element.title);
+  }
+  const label = element.closest("td, div, span")?.previousElementSibling?.textContent || "";
+  if (label) hints.push(label);
+
+  for (const hint of hints) {
+    const fmt = detectDateFormat(hint);
+    if (fmt) return formatDate(parsed, fmt);
+  }
+
+  return value;
+}
+
+// ---------------------------------------------------------------------------
+// Smart dropdown matching
+// ---------------------------------------------------------------------------
+
+function findBestOption(
+  options: HTMLOptionElement[],
+  value: string,
+): HTMLOptionElement | null {
+  const normValue = value.toLowerCase().trim();
+
+  // 1. Exact match on value or text
+  const exact = options.find(
+    (opt) =>
+      opt.value.toLowerCase() === normValue ||
+      opt.text.toLowerCase().trim() === normValue,
+  );
+  if (exact) return exact;
+
+  // 2. Case-insensitive includes (value contains option or vice versa)
+  const partial = options.find((opt) => {
+    const optText = opt.text.toLowerCase().trim();
+    const optVal = opt.value.toLowerCase();
+    return (
+      (optText && normValue.includes(optText)) ||
+      (optText && optText.includes(normValue)) ||
+      (optVal && normValue.includes(optVal)) ||
+      (optVal && optVal.includes(normValue))
+    );
+  });
+  if (partial) return partial;
+
+  // 3. Yes/No matching for boolean-like values
+  const yesValues = new Set(["yes", "y", "true", "1", "open", "willing"]);
+  const noValues = new Set(["no", "n", "false", "0", "not"]);
+  const isYes = yesValues.has(normValue) || normValue.startsWith("yes");
+  const isNo = noValues.has(normValue) || normValue.startsWith("no");
+
+  if (isYes) {
+    const yesOpt = options.find((opt) => {
+      const t = opt.text.toLowerCase().trim();
+      return yesValues.has(t) || t.startsWith("yes");
+    });
+    if (yesOpt) return yesOpt;
+  }
+  if (isNo) {
+    const noOpt = options.find((opt) => {
+      const t = opt.text.toLowerCase().trim();
+      return noValues.has(t) || t.startsWith("no");
+    });
+    if (noOpt) return noOpt;
+  }
+
+  // 4. Token overlap — pick the option with most word overlap
+  const valueTokens = normValue.split(/\s+/);
+  let bestOverlap = 0;
+  let bestOpt: HTMLOptionElement | null = null;
+
+  for (const opt of options) {
+    if (!opt.value && !opt.text.trim()) continue; // skip empty/placeholder
+    const optTokens = opt.text.toLowerCase().trim().split(/\s+/);
+    const overlap = valueTokens.filter((t) => optTokens.includes(t)).length;
+    if (overlap > bestOverlap) {
+      bestOverlap = overlap;
+      bestOpt = opt;
+    }
+  }
+
+  if (bestOpt && bestOverlap > 0) return bestOpt;
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Fill logic: standard inputs, selects, contenteditable, iframes, files
 // ---------------------------------------------------------------------------
 
@@ -1062,17 +1250,12 @@ function fillField(
   }
 
   if (element instanceof HTMLSelectElement) {
-    const options = Array.from(element.options);
-    const match = options.find(
-      (opt) =>
-        opt.value.toLowerCase() === value.toLowerCase() ||
-        opt.text.toLowerCase() === value.toLowerCase()
-    );
+    const match = findBestOption(Array.from(element.options), value);
     if (match) {
       element.value = match.value;
     }
   } else if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-    element.value = value;
+    element.value = adaptDateValue(value, element);
   }
 
   element.dispatchEvent(new Event("input", { bubbles: true }));
