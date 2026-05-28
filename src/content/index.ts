@@ -395,8 +395,15 @@ function scanContentEditableFields(): FormFieldInfo[] {
     if (tableFields.length > 0) {
       fields.push(...tableFields);
 
-      // Also scan for text-based template patterns outside the tables
-      const templateFields = scanTemplateFields(el);
+      // Also scan for text-based template patterns outside the tables,
+      // but exclude any labels already detected as table fields to
+      // prevent duplicate fills that would corrupt the table HTML.
+      const tableLabels = new Set(tableFields.map((f) =>
+        (f.templateLabel || f.label).toLowerCase()
+      ));
+      const templateFields = scanTemplateFields(el).filter(
+        (tf) => !tableLabels.has((tf.templateLabel || tf.label).toLowerCase())
+      );
       if (templateFields.length > 0) {
         fields.push(...templateFields);
       }
@@ -569,19 +576,31 @@ function scanAttachmentInstructions(): FormFieldInfo[] {
   const attachKeywords = /\b(attach|upload|send|include|provide)\b.*\b(resume|cv|curriculum.?vitae|cover.?letter|document|certificate|transcript|passport|id.?card|photo)\b/i;
   const attachLabelPattern = /\b(resume|cv|curriculum.?vitae|cover.?letter)\b/i;
 
-  // Find the Gmail/compose file input to use as the target
-  let fileInput: HTMLInputElement | null = null;
+  // Find the target element: prefer a file input near compose area,
+  // fall back to the compose area itself for drag-and-drop attachment.
+  let targetElement: HTMLElement | null = null;
+  let isFileInput = false;
   const allFileInputs = document.querySelectorAll<HTMLInputElement>("input[type='file']");
   for (const fi of Array.from(allFileInputs)) {
     const isCompose = fi.closest("[role='dialog']") || fi.closest(".compose") ||
                       fi.closest("[data-action='composenew']") || fi.closest(".dC") ||
                       fi.closest("[contenteditable='true']")?.parentElement;
     if (isCompose) {
-      fileInput = fi;
+      targetElement = fi;
+      isFileInput = true;
       break;
     }
   }
-  if (!fileInput) return fields;
+  // Fallback: use the compose area contenteditable for drag-and-drop
+  if (!targetElement) {
+    const composeArea = document.querySelector<HTMLElement>(
+      "[role='textbox'][contenteditable='true'], .editable[contenteditable='true'], [contenteditable='true'][aria-label]"
+    );
+    if (composeArea) {
+      targetElement = composeArea;
+    }
+  }
+  if (!targetElement) return fields;
 
   // Scan contenteditable areas for attachment keywords
   const editables = document.querySelectorAll<HTMLElement>(
@@ -604,7 +623,7 @@ function scanAttachmentInstructions(): FormFieldInfo[] {
           if (!foundLabels.has(label.toLowerCase())) {
             foundLabels.add(label.toLowerCase());
             fields.push({
-              element: fileInput,
+              element: targetElement,
               name: label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
               id: "",
               label,
@@ -612,8 +631,8 @@ function scanAttachmentInstructions(): FormFieldInfo[] {
               placeholder: "",
               sectionHeading: "",
               autocomplete: "",
-              isFileInput: true,
-              acceptTypes: fileInput.getAttribute("accept") || "",
+              isFileInput,
+              acceptTypes: "",
             });
           }
         }
@@ -629,7 +648,7 @@ function scanAttachmentInstructions(): FormFieldInfo[] {
         if (!foundLabels.has(label.toLowerCase())) {
           foundLabels.add(label.toLowerCase());
           fields.push({
-            element: fileInput,
+            element: targetElement,
             name: label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
             id: "",
             label,
@@ -637,8 +656,8 @@ function scanAttachmentInstructions(): FormFieldInfo[] {
             placeholder: "",
             sectionHeading: "",
             autocomplete: "",
-            isFileInput: true,
-            acceptTypes: fileInput.getAttribute("accept") || "",
+            isFileInput,
+            acceptTypes: "",
           });
         }
       }
@@ -695,11 +714,13 @@ function scanFormFields(): FormFieldInfo[] {
   const fileFields = scanFileInputs();
   fields.push(...fileFields);
 
-  // Scan template text for attachment instructions (e.g. "attach resume")
+  // Scan template text for attachment instructions (e.g. "attach resume").
+  // Always add these — they have descriptive labels (e.g. "Resume", "CV")
+  // that match profile attachment keys better than generic "Attachment" labels.
   const attachInstructions = scanAttachmentInstructions();
-  const existingFileElements = new WeakSet<Element>(fileFields.map((f) => f.element));
+  const existingFileLabels = new Set(fileFields.map((f) => f.label.toLowerCase()));
   for (const ai of attachInstructions) {
-    if (!existingFileElements.has(ai.element)) {
+    if (!existingFileLabels.has(ai.label.toLowerCase())) {
       fields.push(ai);
     }
   }
@@ -1139,7 +1160,13 @@ function fillTemplateField(
     }
   }
 
-  // Fallback: line-by-line text replacement
+  // Fallback: line-by-line text replacement.
+  // GUARD: Never use the text/innerHTML fallback on elements containing tables —
+  // setting innerText or innerHTML destroys the table HTML structure.
+  if (element.querySelector("table")) {
+    return false;
+  }
+
   const text = element.innerText || element.textContent || "";
   const lines = text.split("\n");
   const labelLower = templateLabel.toLowerCase();
