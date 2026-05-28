@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Profile Filler",
+  "name": "SmartFill",
   "version": "1.0.0",
-  "description": "Auto-fill forms with grouped/nested profile data. Supports addresses, work experience, education, social links, and more.",
+  "description": "Intelligent form auto-filler. Scans templates, detects field formats, and fills forms smartly from your profile data.",
   "permissions": ["storage", "activeTab", "scripting"],
   "action": {
     "default_popup": "popup.html",

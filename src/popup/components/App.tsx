@@ -550,7 +550,7 @@ export default function App() {
   return (
     <div className="app-container">
       <div className="app-header">
-        <h1>Profile Filler</h1>
+        <h1>SmartFill</h1>
         <div className="header-actions">
           {!isFullTab && (
             <button

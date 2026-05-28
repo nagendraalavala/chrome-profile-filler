@@ -1,5 +1,5 @@
 chrome.runtime.onInstalled.addListener(() => {
-  console.log("Profile Filler extension installed");
+  console.log("SmartFill extension installed");
 });
 
 chrome.action.onClicked.addListener((_tab) => {
