@@ -773,6 +773,85 @@ function dropFileOnElement(
   }
 }
 
+/**
+ * Try to attach a file to Gmail/Outlook by finding the compose dialog's
+ * hidden file input, setting files via DataTransfer, and triggering change.
+ * Falls back to: click the attach button → download file → user selects it.
+ */
+function attachToEmailCompose(
+  contextElement: HTMLElement,
+  dataUrl: string,
+  fileName: string
+): boolean {
+  // Find the compose dialog container
+  const composeDialog = contextElement.closest("[role='dialog']") ||
+                        contextElement.closest(".compose") ||
+                        contextElement.closest(".nH") ||
+                        document.querySelector("[role='dialog']");
+
+  if (!composeDialog) return false;
+
+  // Strategy 1: Find Gmail's hidden file input and set files directly
+  const fileInputSelectors = [
+    "input[type='file'][name='Filedata']",
+    "input[type='file']",
+  ];
+  for (const sel of fileInputSelectors) {
+    const inputs = composeDialog.querySelectorAll<HTMLInputElement>(sel);
+    for (const input of inputs) {
+      if (fillFileInput(input, dataUrl, fileName)) {
+        return true;
+      }
+    }
+  }
+
+  // Strategy 2: Click the attach button to create/reveal the file input,
+  // set up an observer to catch it, then set files on it
+  const attachBtnSelectors = [
+    "[aria-label*='Attach']",
+    "[data-tooltip*='Attach']",
+    ".wG .e5",
+    "[command='Files']",
+    ".a1.aaA.aMZ",
+  ];
+
+  for (const sel of attachBtnSelectors) {
+    const btn = composeDialog.querySelector<HTMLElement>(sel);
+    if (btn) {
+      // Set up a MutationObserver to catch file input creation
+      let fileInputFound = false;
+      const observer = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          for (const node of m.addedNodes) {
+            if (node instanceof HTMLInputElement && node.type === "file") {
+              fileInputFound = fillFileInput(node, dataUrl, fileName);
+              observer.disconnect();
+            }
+          }
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+
+      btn.click();
+
+      // Give Gmail a moment then disconnect
+      setTimeout(() => observer.disconnect(), 500);
+      if (fileInputFound) return true;
+      break;
+    }
+  }
+
+  // Strategy 3: Drag-and-drop onto the compose body
+  const dropTarget = composeDialog.querySelector("[contenteditable='true']") ||
+                     composeDialog.querySelector("[role='textbox']") ||
+                     contextElement;
+  if (dropFileOnElement(dropTarget as HTMLElement, dataUrl, fileName)) {
+    return true;
+  }
+
+  return false;
+}
+
 function fillContentEditable(element: HTMLElement, value: string): void {
   element.focus();
 
@@ -1110,19 +1189,53 @@ chrome.runtime.onMessage.addListener(
         if (item.index >= 0 && item.index < lastScannedFields.length) {
           const field = lastScannedFields[item.index];
           if (item.isAttachment && item.dataUrl && item.fileName) {
-            if (field.element instanceof HTMLInputElement) {
-              // Standard file input
-              if (fillFileInput(field.element, item.dataUrl, item.fileName)) {
-                filledCount++;
+            let attached = false;
+
+            if (field.element instanceof HTMLInputElement && field.element.type === "file") {
+              // Standard file input — set .files directly
+              attached = fillFileInput(field.element, item.dataUrl, item.fileName);
+            }
+
+            if (!attached) {
+              // Try the multi-strategy email compose attachment approach
+              // (hidden file input → click attach button → drag-and-drop)
+              attached = attachToEmailCompose(field.element, item.dataUrl, item.fileName);
+            }
+
+            if (!attached) {
+              // Download fallback: download the file and also try to open
+              // Gmail's file picker so the user can quickly select it
+              try {
+                chrome.runtime.sendMessage({
+                  action: "DOWNLOAD_ATTACHMENT",
+                  data: { dataUrl: item.dataUrl, fileName: item.fileName },
+                });
+
+                // Try to click the attach button so file picker opens
+                const dialog = field.element.closest("[role='dialog']") ||
+                               field.element.closest(".compose") ||
+                               document.querySelector("[role='dialog']");
+                if (dialog) {
+                  const attachBtn = dialog.querySelector<HTMLElement>(
+                    "[aria-label*='Attach'], [data-tooltip*='Attach'], [command='Files']"
+                  );
+                  if (attachBtn) {
+                    setTimeout(() => attachBtn.click(), 300);
+                  }
+                }
+
+                attached = true;
+              } catch {
+                // Last resort: drag-and-drop
+                const composeArea = field.element.closest("[contenteditable='true']") ||
+                                    document.querySelector("[role='textbox'][contenteditable='true']") ||
+                                    field.element;
+                attached = dropFileOnElement(composeArea as HTMLElement, item.dataUrl, item.fileName);
               }
-            } else {
-              // Try drag-and-drop on compose area (Gmail/Outlook)
-              const composeArea = field.element.closest("[contenteditable='true']") ||
-                                  document.querySelector("[role='textbox'][contenteditable='true']") ||
-                                  field.element;
-              if (dropFileOnElement(composeArea as HTMLElement, item.dataUrl, item.fileName)) {
-                filledCount++;
-              }
+            }
+
+            if (attached) {
+              filledCount++;
             }
           } else if (field.isTemplateField && field.templateFormat === "table") {
             fillTableCell(field.element, item.value);

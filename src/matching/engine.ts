@@ -516,6 +516,8 @@ export function matchFields(
       const matched = profileFields.find((p) => p.dotKey === savedMapping.profileKey);
       if (matched) {
         const hasValue = !!(matched.value && matched.value.trim());
+        // Attachments are never auto-selected — user must explicitly check them
+        const isAttach = !!(matched.isAttachment && matched.attachment?.dataUrl);
         results.push({
           formFieldName: formField.name || formField.id,
           formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
@@ -523,7 +525,7 @@ export function matchFields(
           profileKey: matched.dotKey,
           value: matched.value,
           confidence: 1.0,
-          selected: hasValue,
+          selected: hasValue && !isAttach,
           group: getGroupPrefix(matched.dotKey) || undefined,
           isAttachment: matched.isAttachment,
           attachment: matched.attachment,
@@ -546,6 +548,7 @@ export function matchFields(
 
     if (bestMatch && bestScore >= 0.3) {
       const hasValue = !!(bestMatch.value && bestMatch.value.trim());
+      const isAttach = !!(bestMatch.isAttachment && bestMatch.attachment?.dataUrl);
       results.push({
         formFieldName: formField.name || formField.id,
         formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
@@ -553,7 +556,7 @@ export function matchFields(
         profileKey: bestMatch.dotKey,
         value: bestMatch.value,
         confidence: Math.round(bestScore * 100) / 100,
-        selected: hasValue && bestScore >= 0.6,
+        selected: (hasValue || isAttach) && bestScore >= 0.6 && !isAttach,
         group: getGroupPrefix(bestMatch.dotKey) || undefined,
         isAttachment: bestMatch.isAttachment,
         attachment: bestMatch.attachment,
