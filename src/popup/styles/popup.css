@@ -844,3 +844,99 @@ body {
     min-height: 100px;
   }
 }
+
+/* Lock Screen */
+.lock-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  min-height: 400px;
+  text-align: center;
+}
+
+.lock-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.lock-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a1a2e;
+  margin-bottom: 6px;
+}
+
+.lock-subtitle {
+  font-size: 13px;
+  color: #6b7280;
+  margin-bottom: 24px;
+}
+
+.lock-loading {
+  font-size: 13px;
+  color: #9ca3af;
+}
+
+.lock-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 220px;
+}
+
+.pin-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid #d1d5db;
+  border-radius: 10px;
+  font-size: 20px;
+  text-align: center;
+  letter-spacing: 8px;
+  transition: border-color 0.2s;
+  outline: none;
+}
+
+.pin-input:focus {
+  border-color: #4361ee;
+  box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.15);
+}
+
+.lock-error {
+  color: #ef4444;
+  font-size: 12px;
+  margin: 0;
+}
+
+.lock-btn {
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.lock-btn-primary {
+  background: linear-gradient(135deg, #4361ee, #3a0ca3);
+  color: white;
+}
+
+.lock-btn-primary:hover {
+  opacity: 0.9;
+}
+
+.lock-btn-skip {
+  background: none;
+  color: #9ca3af;
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.lock-btn-skip:hover {
+  color: #6b7280;
+}
