@@ -12,9 +12,11 @@ import {
   saveSiteMappings,
   createDefaultProfile,
 } from "../../storage/profileStorage";
+import { updateLastActivity } from "../../storage/pinStorage";
 import FieldEditor from "./FieldEditor";
 import PreviewTable from "./PreviewTable";
 import ImportExport from "./ImportExport";
+import LockScreen from "./LockScreen";
 import "../styles/popup.css";
 
 type TabId = "edit" | "preview" | "import";
@@ -71,6 +73,7 @@ interface SerializedFormField {
 }
 
 export default function App() {
+  const [isUnlocked, setIsUnlocked] = useState(false);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfileId, setActiveId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("edit");
@@ -80,6 +83,22 @@ export default function App() {
   const [statusMsg, setStatusMsg] = useState("");
   const [statusType, setStatusType] = useState<"success" | "error">("success");
   const [isScanning, setIsScanning] = useState(false);
+
+  const handleUnlock = useCallback(() => {
+    setIsUnlocked(true);
+  }, []);
+
+  // Track user activity to refresh the auto-lock timer
+  useEffect(() => {
+    if (!isUnlocked) return;
+    const onActivity = () => { updateLastActivity(); };
+    window.addEventListener("click", onActivity);
+    window.addEventListener("keydown", onActivity);
+    return () => {
+      window.removeEventListener("click", onActivity);
+      window.removeEventListener("keydown", onActivity);
+    };
+  }, [isUnlocked]);
 
   // Detect if running in a full tab (vs popup)
   const isFullTab = window.location.search.includes("tab=true") ||
@@ -412,6 +431,14 @@ export default function App() {
     };
     await handleFieldsChange([...activeProfile.fields, newGroup]);
   };
+
+  if (!isUnlocked) {
+    return (
+      <div className="app-container">
+        <LockScreen onUnlock={handleUnlock} />
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">
