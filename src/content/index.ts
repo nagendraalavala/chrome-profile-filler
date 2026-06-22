@@ -1160,6 +1160,141 @@ function fillField(
 }
 
 // ---------------------------------------------------------------------------
+// Auto-detect floating badge
+// ---------------------------------------------------------------------------
+
+const BADGE_ID = "pf-auto-detect-badge";
+
+function createBadge(): HTMLDivElement {
+  let badge = document.getElementById(BADGE_ID) as HTMLDivElement | null;
+  if (badge) return badge;
+
+  badge = document.createElement("div");
+  badge.id = BADGE_ID;
+  badge.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 2147483647;
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: linear-gradient(135deg, #4361ee, #3a0ca3);
+    color: white;
+    border-radius: 24px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(67, 97, 238, 0.4);
+    transition: transform 0.2s, opacity 0.2s, box-shadow 0.2s;
+    user-select: none;
+    line-height: 1;
+  `;
+
+  const countSpan = document.createElement("span");
+  countSpan.id = "pf-badge-count";
+  countSpan.style.cssText = `
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    background: rgba(255,255,255,0.25);
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 700;
+  `;
+
+  const textSpan = document.createElement("span");
+  textSpan.id = "pf-badge-text";
+  textSpan.textContent = "fields detected";
+
+  const closeBtn = document.createElement("span");
+  closeBtn.textContent = "\u00D7";
+  closeBtn.title = "Dismiss";
+  closeBtn.style.cssText = `
+    margin-left: 4px;
+    font-size: 16px;
+    opacity: 0.7;
+    cursor: pointer;
+    line-height: 1;
+  `;
+  closeBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    badge!.style.display = "none";
+    badgeDismissed = true;
+  });
+
+  badge.appendChild(countSpan);
+  badge.appendChild(textSpan);
+  badge.appendChild(closeBtn);
+
+  badge.addEventListener("mouseenter", () => {
+    badge!.style.transform = "scale(1.05)";
+    badge!.style.boxShadow = "0 6px 20px rgba(67, 97, 238, 0.5)";
+  });
+  badge.addEventListener("mouseleave", () => {
+    badge!.style.transform = "scale(1)";
+    badge!.style.boxShadow = "0 4px 16px rgba(67, 97, 238, 0.4)";
+  });
+
+  badge.addEventListener("click", () => {
+    chrome.runtime.sendMessage({ action: "OPEN_POPUP_AND_SCAN" });
+  });
+
+  document.body.appendChild(badge);
+  return badge;
+}
+
+let badgeDismissed = false;
+let autoDetectTimer: ReturnType<typeof setTimeout> | null = null;
+
+function updateBadge(fieldCount: number): void {
+  if (badgeDismissed || fieldCount === 0) return;
+
+  const badge = createBadge();
+  const countEl = document.getElementById("pf-badge-count");
+  const textEl = document.getElementById("pf-badge-text");
+  if (countEl) countEl.textContent = String(fieldCount);
+  if (textEl) textEl.textContent = fieldCount === 1 ? "field detected" : "fields detected";
+  badge.style.display = "flex";
+}
+
+function autoDetectFields(): void {
+  if (badgeDismissed) return;
+
+  // Skip on extension pages and blank pages
+  const url = window.location.href;
+  if (url.startsWith("chrome") || url === "about:blank") return;
+
+  const fields = scanFormFields();
+  updateBadge(fields.length);
+}
+
+function scheduleAutoDetect(): void {
+  if (autoDetectTimer) clearTimeout(autoDetectTimer);
+  autoDetectTimer = setTimeout(autoDetectFields, 1500);
+}
+
+// Run auto-detect after page settles
+if (document.readyState === "complete") {
+  scheduleAutoDetect();
+} else {
+  window.addEventListener("load", scheduleAutoDetect);
+}
+
+// Re-scan when DOM changes significantly (e.g. SPA navigation, dynamic forms)
+const observer = new MutationObserver(() => {
+  if (!badgeDismissed) scheduleAutoDetect();
+});
+observer.observe(document.body, {
+  childList: true,
+  subtree: true,
+});
+
+// ---------------------------------------------------------------------------
 // Message listener
 // ---------------------------------------------------------------------------
 
