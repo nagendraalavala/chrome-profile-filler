@@ -350,18 +350,6 @@ export default function App() {
     await setActiveProfileId(imported.profileId);
   };
 
-  const handleAddTopLevelField = async () => {
-    if (!activeProfile) return;
-    const newField: ProfileField = {
-      id: generateId(),
-      key: "newField",
-      label: "New Field",
-      type: "FIELD",
-      value: "",
-    };
-    await handleFieldsChange([...activeProfile.fields, newField]);
-  };
-
   const handleAddTopLevelGroup = async () => {
     if (!activeProfile) return;
     const newGroup: ProfileField = {
@@ -450,9 +438,6 @@ export default function App() {
               onChange={handleFieldsChange}
             />
             <div className="add-btn-row" style={{ padding: "0 4px" }}>
-              <button className="add-btn" onClick={handleAddTopLevelField}>
-                + Field
-              </button>
               <button className="add-btn" onClick={handleAddTopLevelGroup}>
                 + Group
               </button>

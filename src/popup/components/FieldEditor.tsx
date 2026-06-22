@@ -254,7 +254,8 @@ function GroupEditor({
         )}
         <div className="group-actions" onClick={(e) => e.stopPropagation()}>
           <button
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               setRenameValue(field.label);
               setIsRenaming(true);
             }}
@@ -262,8 +263,14 @@ function GroupEditor({
           >
             ✎
           </button>
-          <button onClick={onDelete} title="Delete group">
-            🗑
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            title="Delete group"
+          >
+            &#x1F5D1;
           </button>
         </div>
       </div>
@@ -303,29 +310,96 @@ export default function FieldEditor({
   };
 
   const deleteField = (index: number) => {
+    const field = fields[index];
+    if (field.type === "GROUP") {
+      const childCount = (field.children || []).length;
+      const msg = childCount > 0
+        ? `Delete group "${field.label}" and its ${childCount} item(s)?`
+        : `Delete group "${field.label}"?`;
+      if (!window.confirm(msg)) return;
+    }
     onChange(fields.filter((_, i) => i !== index));
+  };
+
+  // At depth 0, find the index where groups start so we can insert add buttons between flat fields and groups
+  const firstGroupIndex = depth === 0
+    ? fields.findIndex((f) => f.type === "GROUP")
+    : -1;
+
+  const addFlatField = () => {
+    const newField: ProfileField = {
+      id: generateId(),
+      key: "newField",
+      label: "New Field",
+      type: "FIELD",
+      value: "",
+    };
+    // Insert before the first group, or at the end if no groups
+    const insertAt = firstGroupIndex >= 0 ? firstGroupIndex : fields.length;
+    const newFields = [...fields];
+    newFields.splice(insertAt, 0, newField);
+    onChange(newFields);
+  };
+
+  const addFlatAttachment = () => {
+    const newAttachment: ProfileField = {
+      id: generateId(),
+      key: "newDocument",
+      label: "New Document",
+      type: "ATTACHMENT",
+      value: "",
+    };
+    const insertAt = firstGroupIndex >= 0 ? firstGroupIndex : fields.length;
+    const newFields = [...fields];
+    newFields.splice(insertAt, 0, newAttachment);
+    onChange(newFields);
   };
 
   return (
     <div>
       {fields.map((field, index) => {
-        if (field.type === "GROUP") {
-          return (
-            <GroupEditor
-              key={field.id}
-              field={field}
-              onUpdate={(updated) => updateField(index, updated)}
-              onDelete={() => deleteField(index)}
-              depth={depth}
-            />
-          );
-        }
+        // At depth 0, render inline add buttons right before the first group
+        const showInlineAddBtns = depth === 0 && firstGroupIndex >= 0 && index === firstGroupIndex;
 
-        if (field.type === "ATTACHMENT") {
+        const node = (() => {
+          if (field.type === "GROUP") {
+            return (
+              <GroupEditor
+                key={field.id}
+                field={field}
+                onUpdate={(updated) => updateField(index, updated)}
+                onDelete={() => deleteField(index)}
+                depth={depth}
+              />
+            );
+          }
+
+          if (field.type === "ATTACHMENT") {
+            if (depth === 0) {
+              return (
+                <div className="flat-field" key={field.id}>
+                  <AttachmentRow
+                    field={field}
+                    onUpdate={(updated) => updateField(index, updated)}
+                    onDelete={() => deleteField(index)}
+                  />
+                </div>
+              );
+            }
+            return (
+              <AttachmentRow
+                key={field.id}
+                field={field}
+                onUpdate={(updated) => updateField(index, updated)}
+                onDelete={() => deleteField(index)}
+              />
+            );
+          }
+
           if (depth === 0) {
             return (
               <div className="flat-field" key={field.id}>
-                <AttachmentRow
+                <FieldRow
                   field={field}
                   onUpdate={(updated) => updateField(index, updated)}
                   onDelete={() => deleteField(index)}
@@ -333,37 +407,46 @@ export default function FieldEditor({
               </div>
             );
           }
+
           return (
-            <AttachmentRow
+            <FieldRow
               key={field.id}
               field={field}
               onUpdate={(updated) => updateField(index, updated)}
               onDelete={() => deleteField(index)}
             />
           );
-        }
+        })();
 
-        if (depth === 0) {
+        if (showInlineAddBtns) {
           return (
-            <div className="flat-field" key={field.id}>
-              <FieldRow
-                field={field}
-                onUpdate={(updated) => updateField(index, updated)}
-                onDelete={() => deleteField(index)}
-              />
-            </div>
+            <React.Fragment key={`${field.id}-with-btns`}>
+              <div className="add-btn-row" style={{ padding: "4px 4px 8px" }}>
+                <button className="add-btn" onClick={addFlatField}>
+                  + Field
+                </button>
+                <button className="add-btn" onClick={addFlatAttachment}>
+                  + Document
+                </button>
+              </div>
+              {node}
+            </React.Fragment>
           );
         }
 
-        return (
-          <FieldRow
-            key={field.id}
-            field={field}
-            onUpdate={(updated) => updateField(index, updated)}
-            onDelete={() => deleteField(index)}
-          />
-        );
+        return node;
       })}
+      {/* If there are no groups, show add buttons at the end of flat fields */}
+      {depth === 0 && firstGroupIndex < 0 && fields.length > 0 && (
+        <div className="add-btn-row" style={{ padding: "4px 4px 8px" }}>
+          <button className="add-btn" onClick={addFlatField}>
+            + Field
+          </button>
+          <button className="add-btn" onClick={addFlatAttachment}>
+            + Document
+          </button>
+        </div>
+      )}
     </div>
   );
 }
