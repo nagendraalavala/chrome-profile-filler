@@ -75,7 +75,13 @@ export type MessageAction =
   | "GET_SELECTION_FIELDS"
   | "SCAN_RESULT"
   | "FILL_RESULT"
-  | "FORM_FIELDS_RESULT";
+  | "FORM_FIELDS_RESULT"
+  | "PING"
+  | "PONG"
+  | "CONTEXT_MENU_FILL"
+  | "CONTEXT_FILL_RESULT"
+  | "OPEN_POPUP_AND_SCAN"
+  | "DOWNLOAD_ATTACHMENT";
 
 export interface ExtensionMessage {
   action: MessageAction;
