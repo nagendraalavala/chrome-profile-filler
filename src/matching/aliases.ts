@@ -140,6 +140,26 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   "currentLocation": [
     "current_location", "location", "current_city",
     "residing_city", "based_in", "work_location",
+    "current_location_full_address", "current_address",
+  ],
+  "willingToRelocate": [
+    "willing_to_relocate", "relocate", "relocation",
+    "open_to_relocation", "open_to_relocate", "willing_to_move",
+  ],
+  "interviewAvailability": [
+    "availability_for_interview", "interview_availability",
+    "availability_for_interview_zoom_skype_webex",
+    "interview_schedule",
+  ],
+  "skypeId": [
+    "skype_id", "skype", "skype_handle", "skype_name",
+  ],
+  "contactNumber": [
+    "contact_number", "phone", "phone_number", "mobile",
+    "cell", "tel", "mobile_number", "cell_phone",
+  ],
+  "emailId": [
+    "email_id", "email", "email_address", "e_mail",
   ],
 
   // Documents / Attachments
@@ -269,18 +289,47 @@ export const SYNONYM_GROUPS: string[][] = [
 
   // Immigration / Visa
   ["visa_status", "visa", "visa_type", "immigration_status",
-   "work_authorization", "work_auth"],
+   "work_authorization", "work_auth", "authorization"],
   ["passport_number", "pp_number", "passport_no", "pp_no",
    "passport_num", "travel_document_number"],
   ["current_location", "location", "current_city", "residing_city",
-   "based_in", "work_location"],
+   "based_in", "work_location", "current_location_full_address",
+   "current_address"],
+
+  // Relocation / Availability
+  ["relocate", "relocation", "willing_to_relocate",
+   "open_to_relocation", "open_to_relocate", "willing_to_move"],
+  ["availability", "available", "notice_period", "start_availability",
+   "available_from", "earliest_start", "availability_to_join",
+   "availability_to_join_the_project", "join_date", "joining_date"],
+  ["interview_availability", "availability_for_interview",
+   "interview_schedule", "interview_time"],
+
+  // Contact / Communication
+  ["skype", "skype_id", "skype_handle", "skype_name"],
+  ["contact_number", "phone", "phone_number", "mobile",
+   "cell", "tel", "mobile_number", "cell_phone"],
+  ["email_id", "email", "email_address", "e_mail"],
+
+  // Experience & Education (long-form labels)
+  ["total_years_of_experience", "years_of_experience", "experience",
+   "total_experience", "years_experience", "work_experience"],
+  ["qualification", "education", "degree", "qualification_with_passing_year",
+   "qualification_with_passing_year_university_name",
+   "highest_qualification"],
+
+  // Identity / Security
+  ["ssn_last_4_digits", "ssn", "social_security_number", "ssn_last_4",
+   "last_4_ssn", "last4ssn"],
 
   // Misc
   ["message", "comments", "notes", "additional_info", "remarks",
    "additional_comments", "other_info"],
-  ["availability", "available", "notice_period", "start_availability",
-   "available_from", "earliest_start"],
   ["referral", "referred_by", "referrer", "reference", "how_did_you_hear"],
+
+  // Social - extended
+  ["linked_in", "linkedin", "linkedin_url", "linkedin_profile",
+   "linkedin_mandatory", "li"],
 ];
 
 /**

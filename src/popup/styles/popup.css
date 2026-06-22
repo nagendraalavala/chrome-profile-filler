@@ -252,6 +252,26 @@ body {
   transition: border-color 0.2s;
 }
 
+.field-textarea {
+  resize: vertical;
+  min-height: 28px;
+  font-family: inherit;
+  line-height: 1.4;
+  overflow: hidden;
+}
+
+.field-row-multiline {
+  align-items: flex-start;
+}
+
+.field-row-multiline .field-label {
+  padding-top: 6px;
+}
+
+.field-row-multiline .field-delete-btn {
+  padding-top: 6px;
+}
+
 .field-input:focus {
   outline: none;
   border-color: #4361ee;
@@ -562,9 +582,15 @@ body {
   border-color: #4361ee;
 }
 
-/* Scan button */
+/* Scan buttons */
+.scan-btn-row {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+
 .scan-btn {
-  width: 100%;
+  flex: 1;
   padding: 12px;
   background: white;
   border: 1px dashed #4361ee;
@@ -573,7 +599,6 @@ body {
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  margin: 8px 0;
   transition: all 0.2s;
 }
 

@@ -118,67 +118,210 @@ function getEditablePlaceholder(el: HTMLElement): string {
 }
 
 // ---------------------------------------------------------------------------
-// Template scanning: detect "Label:" patterns in contenteditable text
-// (e.g. Gmail replies with "Full Name:", "Current Location:", etc.)
+// Template scanning: detect label patterns in contenteditable text.
+// Supports multiple formats including colon, star, tab-separated, dash,
+// pipe, arrow, equals, underscore placeholders, and bare key lines.
 // ---------------------------------------------------------------------------
 
-// Pattern 1: Line ends with colon, optionally preceded by stars (e.g. "Full Name:", "LinkedIn***:")
-const TEMPLATE_COLON_PATTERN = /^(.+?)\s*[*]*:\s*$/;
-// Pattern 2: Line ends with asterisk(s) only, no colon (e.g. "Visa Status*", "PP Number*")
-const TEMPLATE_STAR_PATTERN = /^([A-Za-z].+?)\s*\*+\s*$/;
+type TemplateFormat = "colon" | "star" | "tab" | "dash" | "pipe" | "arrow" | "equals" | "underscore" | "bare" | "table";
 
-function extractTemplateLabels(element: HTMLElement): string[] {
+interface DetectedLabel {
+  label: string;
+  format: TemplateFormat;
+}
+
+function isValidLabel(label: string): boolean {
+  return label.length >= 2 && /^[A-Za-z]/.test(label);
+}
+
+function isSkippableLine(trimmed: string): boolean {
+  if (!trimmed) return true;
+  if (trimmed.length > 80) return true;
+  if (trimmed.startsWith("http") || trimmed.startsWith("www.")) return true;
+  if (trimmed.includes("@") && !trimmed.endsWith(":")) return true;
+  return false;
+}
+
+function extractTemplateLabels(element: HTMLElement): DetectedLabel[] {
   const text = element.innerText || element.textContent || "";
   const lines = text.split("\n");
-  const labels: string[] = [];
+  const results: DetectedLabel[] = [];
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    // Skip lines that are too long (likely paragraph text, not labels)
-    if (trimmed.length > 80) continue;
-    // Skip lines that look like email signatures or URLs
-    if (trimmed.startsWith("http") || trimmed.startsWith("www.")) continue;
-    if (trimmed.includes("@") && !trimmed.endsWith(":")) continue;
+  // Track bare-key candidates separately; only include them if
+  // we find at least 2 short capitalized lines with no other format.
+  const bareCandidates: DetectedLabel[] = [];
 
-    let match = trimmed.match(TEMPLATE_COLON_PATTERN);
-    if (match) {
-      const label = match[1].trim();
-      // Ensure the label starts with a letter and has meaningful content
-      if (label.length >= 2 && /^[A-Za-z]/.test(label)) {
-        labels.push(label);
-      }
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (isSkippableLine(trimmed)) continue;
+
+    // --- 1. Colon format: "Full Name:" or "LinkedIn***:" ---
+    let match = trimmed.match(/^(.+?)\s*[*]*:\s*$/);
+    if (match && isValidLabel(match[1].trim())) {
+      results.push({ label: match[1].trim(), format: "colon" });
       continue;
     }
 
-    match = trimmed.match(TEMPLATE_STAR_PATTERN);
-    if (match) {
-      const label = match[1].trim();
-      if (label.length >= 2) {
-        labels.push(label);
+    // --- 2. Colon with existing value: "Full Name: John" (key\t before value) ---
+    match = trimmed.match(/^(.+?)\s*[*]*:\s+(.+)$/);
+    if (match && isValidLabel(match[1].trim())) {
+      results.push({ label: match[1].trim(), format: "colon" });
+      continue;
+    }
+
+    // --- 3. Star format: "Visa Status*" ---
+    match = trimmed.match(/^([A-Za-z].+?)\s*\*+\s*$/);
+    if (match && isValidLabel(match[1].trim())) {
+      results.push({ label: match[1].trim(), format: "star" });
+      continue;
+    }
+
+    // --- 4. Tab-separated: "Full Name\t" or "Full Name\tvalue" ---
+    if (rawLine.includes("\t")) {
+      const parts = rawLine.split("\t");
+      const key = parts[0].trim();
+      if (isValidLabel(key)) {
+        results.push({ label: key, format: "tab" });
+        continue;
       }
     }
+
+    // --- 5. Pipe format: "Full Name |" or "Full Name | value" ---
+    match = trimmed.match(/^([A-Za-z].+?)\s*\|\s*(.*)$/);
+    if (match && isValidLabel(match[1].trim())) {
+      results.push({ label: match[1].trim(), format: "pipe" });
+      continue;
+    }
+
+    // --- 6. Arrow format: "Full Name =>" or "Full Name ->" ---
+    match = trimmed.match(/^([A-Za-z].+?)\s*(?:=>|->)\s*(.*)$/);
+    if (match && isValidLabel(match[1].trim())) {
+      results.push({ label: match[1].trim(), format: "arrow" });
+      continue;
+    }
+
+    // --- 7. Equals format: "Full Name =" or "Full Name = value" ---
+    match = trimmed.match(/^([A-Za-z].+?)\s*=\s*(.*)$/);
+    if (match && isValidLabel(match[1].trim())) {
+      results.push({ label: match[1].trim(), format: "equals" });
+      continue;
+    }
+
+    // --- 8. Dash separator: "Full Name - " or "Full Name – " ---
+    match = trimmed.match(/^([A-Za-z].+?)\s+[-–—]\s*(.*)$/);
+    if (match && isValidLabel(match[1].trim())) {
+      results.push({ label: match[1].trim(), format: "dash" });
+      continue;
+    }
+
+    // --- 9. Underscore placeholder: "Full Name ____" or "Full Name: ___" ---
+    match = trimmed.match(/^([A-Za-z].+?)\s*:?\s*_{2,}\s*$/);
+    if (match && isValidLabel(match[1].trim())) {
+      results.push({ label: match[1].trim(), format: "underscore" });
+      continue;
+    }
+
+    // --- 10. Bare key candidate: short capitalized line with no value ---
+    // Only treated as labels if enough such lines appear together.
+    if (/^[A-Za-z][A-Za-z0-9 /().#]{1,40}$/.test(trimmed) && !trimmed.includes("  ")) {
+      bareCandidates.push({ label: trimmed, format: "bare" });
+    }
   }
-  return labels;
+
+  // Include bare candidates if we found at least 2 AND no other formats
+  // were detected (to avoid false positives on normal paragraph text).
+  if (results.length === 0 && bareCandidates.length >= 2) {
+    results.push(...bareCandidates);
+  }
+
+  return results;
 }
 
 function scanTemplateFields(element: HTMLElement): FormFieldInfo[] {
-  const labels = extractTemplateLabels(element);
-  if (labels.length < 2) return []; // Need at least 2 labels to be a template
+  const detected = extractTemplateLabels(element);
+  if (detected.length < 2) return [];
 
-  return labels.map((label) => ({
+  return detected.map((d) => ({
     element,
-    name: label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
+    name: d.label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
     id: "",
-    label,
+    label: d.label,
     type: "template-field",
     placeholder: "",
     sectionHeading: "",
     autocomplete: "",
     isContentEditable: true,
     isTemplateField: true,
-    templateLabel: label,
+    templateLabel: d.label,
+    templateFormat: d.format,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Table scanning: detect key-value pairs in HTML tables inside editable areas
+// (e.g. email templates with tabular layout: left cell = label, right cell = value)
+// ---------------------------------------------------------------------------
+
+function scanTableFields(container: HTMLElement): FormFieldInfo[] {
+  const fields: FormFieldInfo[] = [];
+  const tables = container.querySelectorAll("table");
+
+  for (const table of Array.from(tables)) {
+    const rows = table.querySelectorAll("tr");
+    let keyValuePairs = 0;
+
+    // First pass: count how many rows look like key-value pairs
+    for (const row of Array.from(rows)) {
+      const cells = row.querySelectorAll("td, th");
+      if (cells.length >= 2) {
+        const keyText = (cells[0].textContent || "").trim();
+        if (keyText.length >= 2 && /^[A-Za-z]/.test(keyText) && keyText.length <= 80) {
+          keyValuePairs++;
+        }
+      }
+    }
+
+    // Need at least 2 key-value rows to treat this as a template table
+    if (keyValuePairs < 2) continue;
+
+    // Second pass: create field entries
+    for (const row of Array.from(rows)) {
+      const cells = row.querySelectorAll("td, th");
+      if (cells.length < 2) continue;
+
+      const keyCell = cells[0];
+      const valueCell = cells[cells.length - 1];
+      const keyText = (keyCell.textContent || "").trim();
+
+      // Skip if key cell is empty, too short, or too long
+      if (keyText.length < 2 || keyText.length > 80) continue;
+      if (!/^[A-Za-z]/.test(keyText)) continue;
+
+      // Skip if the key cell and value cell are the same (single-cell row)
+      if (keyCell === valueCell) continue;
+
+      // Clean the label: strip trailing colons/stars that might be in the cell
+      const label = keyText.replace(/[:\s*]+$/, "").trim();
+      if (label.length < 2) continue;
+
+      fields.push({
+        element: valueCell as HTMLElement,
+        name: label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
+        id: "",
+        label,
+        type: "template-field",
+        placeholder: "",
+        sectionHeading: findSectionHeading(table as HTMLElement),
+        autocomplete: "",
+        isContentEditable: true,
+        isTemplateField: true,
+        templateLabel: label,
+        templateFormat: "table",
+      });
+    }
+  }
+
+  return fields;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,6 +349,19 @@ function scanContentEditableFields(): FormFieldInfo[] {
     if (rect.height < 20 || rect.width < 40) return;
 
     seen.add(el);
+
+    // Check if this contenteditable contains HTML tables with key-value pairs
+    const tableFields = scanTableFields(el);
+    if (tableFields.length > 0) {
+      fields.push(...tableFields);
+
+      // Also scan for text-based template patterns outside the tables
+      const templateFields = scanTemplateFields(el);
+      if (templateFields.length > 0) {
+        fields.push(...templateFields);
+      }
+      return;
+    }
 
     // Check if this contenteditable contains template patterns (e.g. email reply with "Label:" lines)
     const templateFields = scanTemplateFields(el);
@@ -389,6 +545,18 @@ function scanFormFields(): FormFieldInfo[] {
   const editableFields = scanContentEditableFields();
   fields.push(...editableFields);
 
+  // Only scan standalone tables on the page when no editable compose
+  // areas were found (avoids picking up email thread content in Gmail)
+  if (editableFields.length === 0) {
+    const pageTableFields = scanTableFields(document.body);
+    const existingElements = new WeakSet<Element>(fields.map((f) => f.element));
+    for (const tf of pageTableFields) {
+      if (!existingElements.has(tf.element)) {
+        fields.push(tf);
+      }
+    }
+  }
+
   // Scan same-origin iframes for fields and editors
   const iframeFields = scanIframeFields();
   fields.push(...iframeFields);
@@ -396,6 +564,115 @@ function scanFormFields(): FormFieldInfo[] {
   // Scan file input fields for attachment support
   const fileFields = scanFileInputs();
   fields.push(...fileFields);
+
+  return fields;
+}
+
+/**
+ * Scan only the user's selected/highlighted region of the page.
+ * Finds the nearest common ancestor of the selection and scans within it.
+ */
+function selectionIntersectsField(
+  selection: Selection,
+  field: FormFieldInfo,
+): boolean {
+  // For table fields, check if the ROW intersects the selection
+  // (user may select the label cell, not the value cell)
+  if (field.templateFormat === "table") {
+    const row = field.element.closest("tr");
+    if (row) return selection.containsNode(row, true);
+  }
+  return selection.containsNode(field.element, true);
+}
+
+function scanSelectionFields(): FormFieldInfo[] {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    return [];
+  }
+
+  // Get the container element that encompasses the selection
+  const range = selection.getRangeAt(0);
+  let container = range.commonAncestorContainer as HTMLElement;
+  if (container.nodeType === Node.TEXT_NODE) {
+    container = container.parentElement as HTMLElement;
+  }
+  if (!container) return [];
+
+  // Expand from a cell/row up to the full table for proper table scanning
+  const parentTable = container.closest("table");
+  if (parentTable) {
+    container = parentTable as HTMLElement;
+  }
+
+  const fields: FormFieldInfo[] = [];
+  const skipTypes = new Set(["hidden", "submit", "button", "reset", "file", "image", "checkbox", "radio"]);
+
+  // Scan form inputs within the selection container
+  const formElements = container.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+    "input, textarea, select"
+  );
+  formElements.forEach((el) => {
+    if (el instanceof HTMLInputElement && skipTypes.has(el.type)) return;
+    if (!isVisible(el)) return;
+    if (!selection.containsNode(el, true)) return;
+
+    fields.push({
+      element: el,
+      name: el.getAttribute("name") || "",
+      id: el.getAttribute("id") || "",
+      label: findLabel(el),
+      type: el instanceof HTMLInputElement ? el.type : el.tagName.toLowerCase(),
+      placeholder: el.getAttribute("placeholder") || "",
+      sectionHeading: findSectionHeading(el),
+      autocomplete: el.getAttribute("autocomplete") || "",
+      isContentEditable: false,
+    });
+  });
+
+  // Scan tables within the selection (check row intersection for table fields)
+  const tableFields = scanTableFields(container);
+  for (const tf of tableFields) {
+    if (selectionIntersectsField(selection, tf)) {
+      fields.push(tf);
+    }
+  }
+
+  // Scan contenteditable elements within/containing the selection
+  const editableAncestor = container.closest(
+    "[contenteditable='true'], [contenteditable=''], [role='textbox']"
+  ) as HTMLElement | null;
+
+  if (editableAncestor) {
+    const tblFields = scanTableFields(editableAncestor);
+    const templateFields = scanTemplateFields(editableAncestor);
+    const existingElements = new WeakSet<Element>(fields.map((f) => f.element));
+
+    for (const f of [...tblFields, ...templateFields]) {
+      if (!existingElements.has(f.element) && selectionIntersectsField(selection, f)) {
+        fields.push(f);
+      }
+    }
+  } else {
+    const editables = container.querySelectorAll<HTMLElement>(
+      "[contenteditable='true'], [contenteditable=''], [role='textbox']"
+    );
+    const existingElements = new WeakSet<Element>(fields.map((f) => f.element));
+
+    editables.forEach((el) => {
+      if (!selection.containsNode(el, true)) return;
+      if (!isVisible(el)) return;
+
+      const tblFields = scanTableFields(el);
+      const templateFields = scanTemplateFields(el);
+
+      for (const f of [...tblFields, ...templateFields]) {
+        if (!existingElements.has(f.element) && selectionIntersectsField(selection, f)) {
+          fields.push(f);
+        }
+      }
+    });
+  }
 
   return fields;
 }
@@ -415,6 +692,7 @@ function serializeFormFields(fields: FormFieldInfo[]): Array<Omit<FormFieldInfo,
     acceptTypes: f.acceptTypes,
     isTemplateField: f.isTemplateField,
     templateLabel: f.templateLabel,
+    templateFormat: f.templateFormat,
   }));
 }
 
@@ -497,10 +775,17 @@ function dropFileOnElement(
 
 function fillContentEditable(element: HTMLElement, value: string): void {
   element.focus();
-  element.textContent = value;
 
-  if (!element.textContent) {
-    element.innerHTML = value;
+  if (value.includes("\n")) {
+    element.innerHTML = value
+      .split("\n")
+      .map((line) => escapeHtml(line))
+      .join("<br>");
+  } else {
+    element.textContent = value;
+    if (!element.textContent) {
+      element.innerHTML = escapeHtml(value);
+    }
   }
 
   element.dispatchEvent(new InputEvent("input", {
@@ -513,30 +798,156 @@ function fillContentEditable(element: HTMLElement, value: string): void {
   element.dispatchEvent(new Event("blur", { bubbles: true }));
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
+ * Build HTML-level regex patterns for a given label + format so we can
+ * replace the value portion while preserving the separator and formatting.
+ */
+function buildHtmlPatterns(escapedLabel: string, format: TemplateFormat): RegExp[] {
+  switch (format) {
+    case "colon":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*[*]*:[\\s]*)([^<\\n]*)`, "i"),
+      ];
+    case "star":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*\\*+[\\s]*)([^<\\n]*)`, "i"),
+      ];
+    case "tab":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*\\t[\\s]*)([^<\\n]*)`, "i"),
+        new RegExp(`(${escapedLabel}[\\s]+)([^<\\n]*)`, "i"),
+      ];
+    case "pipe":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*\\|[\\s]*)([^<\\n]*)`, "i"),
+      ];
+    case "arrow":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*(?:=>|->)[\\s]*)([^<\\n]*)`, "i"),
+      ];
+    case "equals":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*=[\\s]*)([^<\\n]*)`, "i"),
+      ];
+    case "dash":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]+[-–—][\\s]*)([^<\\n]*)`, "i"),
+      ];
+    case "underscore":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*:?[\\s]*)_{2,}`, "i"),
+      ];
+    case "bare":
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*)()$`, "im"),
+      ];
+    default:
+      return [
+        new RegExp(`(${escapedLabel}[\\s]*[*]*[:\\s]*)([^<\\n]*)`, "i"),
+      ];
+  }
+}
+
+/**
+ * For the text-based fallback, find the separator position in a line
+ * so we can replace everything after it with the value.
+ */
+function findSeparatorEnd(line: string, format: TemplateFormat): number {
+  switch (format) {
+    case "colon": {
+      const idx = line.lastIndexOf(":");
+      return idx >= 0 ? idx + 1 : -1;
+    }
+    case "star": {
+      const m = line.match(/^(.*\*+)\s*$/);
+      return m ? m[1].length : -1;
+    }
+    case "tab": {
+      const idx = line.indexOf("\t");
+      return idx >= 0 ? idx + 1 : -1;
+    }
+    case "pipe": {
+      const idx = line.indexOf("|");
+      return idx >= 0 ? idx + 1 : -1;
+    }
+    case "arrow": {
+      const m = line.match(/(=>|->)/);
+      return m && m.index !== undefined ? m.index + m[1].length : -1;
+    }
+    case "equals": {
+      const idx = line.indexOf("=");
+      return idx >= 0 ? idx + 1 : -1;
+    }
+    case "dash": {
+      const m = line.match(/\s+([-–—])\s*/);
+      return m && m.index !== undefined ? m.index + m[0].length : -1;
+    }
+    case "underscore": {
+      const m = line.match(/_{2,}/);
+      return m && m.index !== undefined ? m.index : -1;
+    }
+    case "bare":
+      return line.length;
+    default:
+      return -1;
+  }
+}
+
+/**
+ * Convert a multi-line value to HTML with <br> tags, escaping special chars.
+ */
+function valueToHtml(value: string): string {
+  if (value.includes("\n")) {
+    return value
+      .split("\n")
+      .map((line) => escapeHtml(line))
+      .join("<br>");
+  }
+  return escapeHtml(value);
+}
+
 /**
  * Fill a template field inside a contenteditable element.
- * Finds the line with "Label:" or "Label*" and appends the value after it.
+ * Detects the format used by each label and places the value after
+ * the separator, preserving the original structure.
+ * Supports multi-line values (e.g. references with name, designation, email).
  */
-function fillTemplateField(element: HTMLElement, templateLabel: string, value: string): boolean {
+function fillTemplateField(
+  element: HTMLElement,
+  templateLabel: string,
+  value: string,
+  format: TemplateFormat = "colon",
+): boolean {
   element.focus();
 
-  // Work with innerHTML to preserve formatting
   const html = element.innerHTML;
-  // Escape the label for use in regex
   const escapedLabel = templateLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const htmlValue = valueToHtml(value);
 
-  // Try multiple patterns to find the label in HTML:
-  // 1. Label followed by optional stars then colon: "Full Name:", "LinkedIn***:"
-  // 2. Label followed by stars only: "Visa Status*", "PP Number*"
-  const patterns = [
-    new RegExp(`(${escapedLabel}[\\s]*[*]*[:\\s]*)([^<\\n]*)`, "i"),
-    new RegExp(`(${escapedLabel}[\\s]*\\*+[\\s]*)([^<\\n]*)`, "i"),
-  ];
+  // Try format-specific HTML patterns first, then fall back to generic ones
+  const formatPatterns = buildHtmlPatterns(escapedLabel, format);
+  const genericPatterns = format !== "colon" ? buildHtmlPatterns(escapedLabel, "colon") : [];
+  const allPatterns = [...formatPatterns, ...genericPatterns];
 
-  for (const pattern of patterns) {
+  for (const pattern of allPatterns) {
     const match = html.match(pattern);
     if (match) {
-      const newHtml = html.replace(pattern, `$1${value}`);
+      let newHtml: string;
+      if (format === "underscore") {
+        newHtml = html.replace(pattern, `$1${htmlValue}`);
+      } else if (format === "bare") {
+        newHtml = html.replace(pattern, `$1 ${htmlValue}`);
+      } else {
+        newHtml = html.replace(pattern, `$1${htmlValue}`);
+      }
       element.innerHTML = newHtml;
 
       element.dispatchEvent(new InputEvent("input", {
@@ -550,35 +961,60 @@ function fillTemplateField(element: HTMLElement, templateLabel: string, value: s
     }
   }
 
-  // Fallback: try with textContent line-by-line
+  // Fallback: line-by-line text replacement
   const text = element.innerText || element.textContent || "";
   const lines = text.split("\n");
   const labelLower = templateLabel.toLowerCase();
   let found = false;
 
-  const newLines = lines.map((line) => {
-    if (found) return line;
-    const trimmed = line.trim().toLowerCase();
-    // Check if this line contains the label
-    if (trimmed.includes(labelLower)) {
-      // Find the last colon or the last sequence of stars
-      const lastColonIdx = line.lastIndexOf(":");
-      if (lastColonIdx >= 0) {
-        found = true;
-        return line.substring(0, lastColonIdx + 1) + " " + value;
-      }
-      // Find trailing stars
-      const starMatch = line.match(/^(.*\*+)\s*$/);
-      if (starMatch) {
-        found = true;
-        return starMatch[1] + " " + value;
-      }
+  const newLines: string[] = [];
+  for (const line of lines) {
+    if (found) {
+      newLines.push(line);
+      continue;
     }
-    return line;
-  });
+    const trimmedLower = line.trim().toLowerCase();
+    if (!trimmedLower.includes(labelLower)) {
+      newLines.push(line);
+      continue;
+    }
+
+    // Try format-specific separator first
+    const sepEnd = findSeparatorEnd(line, format);
+    if (sepEnd >= 0) {
+      found = true;
+      const prefix = line.substring(0, sepEnd);
+      newLines.push(prefix + " " + value);
+      continue;
+    }
+
+    // Generic fallback: try colon, then tab, then append
+    const colonIdx = line.lastIndexOf(":");
+    if (colonIdx >= 0) {
+      found = true;
+      newLines.push(line.substring(0, colonIdx + 1) + " " + value);
+      continue;
+    }
+    const tabIdx = line.indexOf("\t");
+    if (tabIdx >= 0) {
+      found = true;
+      newLines.push(line.substring(0, tabIdx + 1) + value);
+      continue;
+    }
+    // Last resort: append after the label
+    found = true;
+    newLines.push(line + " " + value);
+  }
 
   if (found) {
-    element.innerText = newLines.join("\n");
+    // For multi-line values in text mode, use innerHTML with <br> to preserve lines
+    if (value.includes("\n")) {
+      element.innerHTML = newLines
+        .map((line) => escapeHtml(line))
+        .join("<br>");
+    } else {
+      element.innerText = newLines.join("\n");
+    }
     element.dispatchEvent(new InputEvent("input", {
       bubbles: true,
       cancelable: true,
@@ -590,6 +1026,29 @@ function fillTemplateField(element: HTMLElement, templateLabel: string, value: s
   }
 
   return false;
+}
+
+/**
+ * Fill a table cell (<td>) directly with a value.
+ * Supports multi-line values by converting \n to <br>.
+ */
+function fillTableCell(element: HTMLElement, value: string): void {
+  if (value.includes("\n")) {
+    element.innerHTML = value
+      .split("\n")
+      .map((line) => escapeHtml(line))
+      .join("<br>");
+  } else {
+    element.textContent = value;
+  }
+
+  element.dispatchEvent(new InputEvent("input", {
+    bubbles: true,
+    cancelable: true,
+    inputType: "insertText",
+    data: value,
+  }));
+  element.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 function fillField(
@@ -631,6 +1090,10 @@ chrome.runtime.onMessage.addListener(
   (message: ExtensionMessage, _sender, sendResponse) => {
     if (message.action === "GET_FORM_FIELDS") {
       lastScannedFields = scanFormFields();
+      const serialized = serializeFormFields(lastScannedFields);
+      sendResponse({ action: "FORM_FIELDS_RESULT", data: serialized });
+    } else if (message.action === "GET_SELECTION_FIELDS") {
+      lastScannedFields = scanSelectionFields();
       const serialized = serializeFormFields(lastScannedFields);
       sendResponse({ action: "FORM_FIELDS_RESULT", data: serialized });
     } else if (message.action === "FILL_FIELDS") {
@@ -692,8 +1155,11 @@ chrome.runtime.onMessage.addListener(
             if (attached) {
               filledCount++;
             }
+          } else if (field.isTemplateField && field.templateFormat === "table") {
+            fillTableCell(field.element, item.value);
+            filledCount++;
           } else if (field.isTemplateField && field.templateLabel) {
-            if (fillTemplateField(field.element, field.templateLabel, item.value)) {
+            if (fillTemplateField(field.element, field.templateLabel, item.value, field.templateFormat || "colon")) {
               filledCount++;
             }
           } else {
