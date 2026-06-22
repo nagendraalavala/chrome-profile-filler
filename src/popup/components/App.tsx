@@ -13,6 +13,7 @@ import {
   createDefaultProfile,
 } from "../../storage/profileStorage";
 import { updateLastActivity } from "../../storage/pinStorage";
+import { t } from "../../i18n";
 import FieldEditor from "./FieldEditor";
 import PreviewTable from "./PreviewTable";
 import ImportExport from "./ImportExport";
@@ -458,7 +459,7 @@ export default function App() {
   return (
     <div className="app-container">
       <div className="app-header">
-        <h1>Profile Filler</h1>
+        <h1>{t("appTitle")}</h1>
         <div className="header-actions">
           {!isFullTab && (
             <button
@@ -466,7 +467,7 @@ export default function App() {
               onClick={handleOpenInTab}
               title="Open in full tab (required for document uploads)"
             >
-              Open in Tab
+              {t("openInTab")}
             </button>
           )}
           <button
@@ -475,14 +476,14 @@ export default function App() {
             disabled={isScanning}
             title="Scan only the highlighted/selected area"
           >
-            {isScanning ? "..." : "Scan Selection"}
+            {isScanning ? t("scanning") : t("scanSelection")}
           </button>
           <button
             className="header-btn"
             onClick={handleScanForm}
             disabled={isScanning}
           >
-            {isScanning ? "..." : "Scan Form"}
+            {isScanning ? t("scanning") : t("scanForm")}
           </button>
         </div>
       </div>
@@ -514,19 +515,19 @@ export default function App() {
           className={`tab-btn ${activeTab === "edit" ? "active" : ""}`}
           onClick={() => setActiveTab("edit")}
         >
-          Edit Profile
+          {t("editTab")}
         </button>
         <button
           className={`tab-btn ${activeTab === "preview" ? "active" : ""}`}
           onClick={() => setActiveTab("preview")}
         >
-          Preview{matches.length > 0 ? ` (${matches.filter((m) => m.selected).length}/${matches.length})` : ""}
+          {t("previewTab")}{matches.length > 0 ? ` (${matches.filter((m) => m.selected).length}/${matches.length})` : ""}
         </button>
         <button
           className={`tab-btn ${activeTab === "import" ? "active" : ""}`}
           onClick={() => setActiveTab("import")}
         >
-          Import/Export
+          {t("importTab")}
         </button>
       </div>
 
@@ -539,7 +540,7 @@ export default function App() {
             />
             <div className="add-btn-row" style={{ padding: "0 4px" }}>
               <button className="add-btn" onClick={handleAddTopLevelGroup}>
-                + Group
+                {t("addGroup")}
               </button>
             </div>
           </div>
@@ -586,7 +587,7 @@ export default function App() {
             onClick={handleFillFields}
             disabled={!matches.some((m) => m.selected)}
           >
-            Fill Selected Fields ({matches.filter((m) => m.selected).length})
+            {t("fillSelected")} ({matches.filter((m) => m.selected).length})
           </button>
           <button className="save-mapping-btn" onClick={handleSaveMappings}>
             Save Mappings

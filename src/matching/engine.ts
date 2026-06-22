@@ -1,5 +1,6 @@
 import { FlattenedField, MatchResult, FormFieldInfo, SiteMapping } from "../models/profile";
 import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS, SYNONYM_GROUPS, TOKEN_ABBREVIATIONS, COMPOSITE_RULES, CompositeRule } from "./aliases";
+import { getI18nAliases } from "./i18nAliases";
 
 function normalize(str: string): string {
   return str
@@ -88,6 +89,18 @@ function buildAliasLookup(): Map<string, string> {
     lookup.set(normalize(profileKey), profileKey);
     for (const alias of aliases) {
       lookup.set(normalize(alias), profileKey);
+    }
+  }
+  // Merge multilingual aliases
+  for (const [profileKey, aliases] of Object.entries(getI18nAliases())) {
+    if (!lookup.has(normalize(profileKey))) {
+      lookup.set(normalize(profileKey), profileKey);
+    }
+    for (const alias of aliases) {
+      const norm = normalize(alias);
+      if (!lookup.has(norm)) {
+        lookup.set(norm, profileKey);
+      }
     }
   }
   return lookup;
