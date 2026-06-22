@@ -298,8 +298,23 @@ export default function App() {
     setIsScanning(false);
   };
 
-  const handleScanForm = () => performScan("GET_FORM_FIELDS");
+  const handleScanForm = useCallback(() => performScan("GET_FORM_FIELDS"), [activeProfile, flatFields]);
   const handleScanSelection = () => performScan("GET_SELECTION_FIELDS");
+
+  // Auto-scan when opened via the floating badge (?autoScan=true)
+  const autoScanTriggered = React.useRef(false);
+  useEffect(() => {
+    if (
+      !autoScanTriggered.current &&
+      isUnlocked &&
+      activeProfile &&
+      window.location.search.includes("autoScan=true")
+    ) {
+      autoScanTriggered.current = true;
+      setActiveTab("preview");
+      handleScanForm();
+    }
+  }, [isUnlocked, activeProfile, handleScanForm]);
 
   const handleToggleMatch = (index: number) => {
     setMatches((prev) => {
