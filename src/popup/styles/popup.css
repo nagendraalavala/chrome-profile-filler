@@ -54,6 +54,14 @@ body {
   background: rgba(255, 255, 255, 0.35);
 }
 
+.sync-btn.sync-on {
+  background: rgba(16, 185, 129, 0.5);
+}
+
+.sync-btn.sync-on:hover {
+  background: rgba(16, 185, 129, 0.7);
+}
+
 /* Profile Selector */
 .profile-bar {
   display: flex;

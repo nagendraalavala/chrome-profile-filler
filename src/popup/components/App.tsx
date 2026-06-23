@@ -14,6 +14,7 @@ import {
 } from "../../storage/profileStorage";
 import { updateLastActivity } from "../../storage/pinStorage";
 import { t } from "../../i18n";
+import { isSyncEnabled, setSyncEnabled, pullFromSync, onSyncChanged } from "../../storage/syncStorage";
 import FieldEditor from "./FieldEditor";
 import PreviewTable from "./PreviewTable";
 import ImportExport from "./ImportExport";
@@ -84,6 +85,7 @@ export default function App() {
   const [statusMsg, setStatusMsg] = useState("");
   const [statusType, setStatusType] = useState<"success" | "error">("success");
   const [isScanning, setIsScanning] = useState(false);
+  const [syncOn, setSyncOn] = useState(false);
 
   const handleUnlock = useCallback(() => {
     setIsUnlocked(true);
@@ -123,9 +125,16 @@ export default function App() {
 
   const activeProfile = profiles.find((p) => p.profileId === activeProfileId) || null;
 
-  // Load profiles on mount
+  // Load profiles on mount; pull from sync if enabled
   useEffect(() => {
     (async () => {
+      const syncEnabled = await isSyncEnabled();
+      setSyncOn(syncEnabled);
+
+      if (syncEnabled) {
+        await pullFromSync();
+      }
+
       let loaded = await getProfiles();
       if (loaded.length === 0) {
         const defaultProfile = createDefaultProfile();
@@ -141,6 +150,17 @@ export default function App() {
         setActiveId(loaded[0].profileId);
       }
     })();
+  }, []);
+
+  // Listen for sync changes from other devices
+  useEffect(() => {
+    onSyncChanged(async () => {
+      const updated = await pullFromSync();
+      if (updated) {
+        const loaded = await getProfiles();
+        setProfiles(loaded);
+      }
+    });
   }, []);
 
   // Update flat fields when active profile changes
@@ -470,6 +490,18 @@ export default function App() {
               {t("openInTab")}
             </button>
           )}
+          <button
+            className={`header-btn sync-btn ${syncOn ? "sync-on" : ""}`}
+            onClick={async () => {
+              const next = !syncOn;
+              await setSyncEnabled(next);
+              setSyncOn(next);
+              showStatus(next ? "Sync enabled — profiles will sync across devices" : "Sync disabled", "success");
+            }}
+            title={syncOn ? "Cloud sync is ON — click to disable" : "Enable cloud sync across devices"}
+          >
+            {syncOn ? "Sync ON" : "Sync"}
+          </button>
           <button
             className="header-btn"
             onClick={handleScanSelection}

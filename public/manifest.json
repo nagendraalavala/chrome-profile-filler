@@ -23,6 +23,15 @@
       "run_at": "document_idle"
     }
   ],
+  "commands": {
+    "fill-active-profile": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+F",
+        "mac": "Command+Shift+F"
+      },
+      "description": "Fill form fields with the active profile"
+    }
+  },
   "icons": {
     "16": "icon16.png",
     "48": "icon48.png",

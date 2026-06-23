@@ -1,5 +1,6 @@
 import { Profile, SiteMapping } from "../models/profile";
 import { generateId } from "../utils/ids";
+import { pushToSync } from "./syncStorage";
 
 const PROFILES_KEY = "pf_profiles";
 const MAPPINGS_KEY = "pf_site_mappings";
@@ -41,7 +42,8 @@ export async function getProfiles(): Promise<Profile[]> {
 }
 
 export async function saveProfiles(profiles: Profile[]): Promise<void> {
-  return set(PROFILES_KEY, profiles);
+  await set(PROFILES_KEY, profiles);
+  pushToSync().catch(() => { /* sync errors are non-fatal */ });
 }
 
 export async function getProfile(profileId: string): Promise<Profile | null> {
@@ -76,7 +78,8 @@ export async function getActiveProfileId(): Promise<string | null> {
 }
 
 export async function setActiveProfileId(profileId: string): Promise<void> {
-  return set(ACTIVE_PROFILE_KEY, profileId);
+  await set(ACTIVE_PROFILE_KEY, profileId);
+  pushToSync().catch(() => { /* sync errors are non-fatal */ });
 }
 
 export async function getSiteMappings(): Promise<SiteMapping[]> {
