@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Profile Filler",
+  "name": "__MSG_extName__",
   "version": "1.0.0",
-  "description": "Auto-fill forms with grouped/nested profile data. Supports addresses, work experience, education, social links, and more.",
+  "description": "__MSG_extDescription__",
+  "default_locale": "en",
   "permissions": ["storage", "activeTab", "scripting", "downloads", "contextMenus"],
   "action": {
     "default_popup": "popup.html",

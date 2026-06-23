@@ -6,6 +6,7 @@ import {
   isSessionExpired,
   updateLastActivity,
 } from "../../storage/pinStorage";
+import { t } from "../../i18n";
 
 interface LockScreenProps {
   onUnlock: () => void;
@@ -118,9 +119,9 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
     return (
       <div className="lock-screen">
         <div className="lock-icon">&#x1F511;</div>
-        <h2 className="lock-title">Set Up PIN</h2>
+        <h2 className="lock-title">{t("pinSetBtn")}</h2>
         <p className="lock-subtitle">
-          Protect your profile data with a PIN
+          {t("pinSetup")}
         </p>
 
         <div className="lock-form">
@@ -131,7 +132,7 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
             inputMode="numeric"
             pattern="[0-9]*"
             maxLength={8}
-            placeholder="Enter PIN (4+ digits)"
+            placeholder={t("pinPlaceholder")}
             value={pin}
             onChange={(e) => {
               setPin(e.target.value.replace(/\D/g, ""));
@@ -147,7 +148,7 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
               inputMode="numeric"
               pattern="[0-9]*"
               maxLength={8}
-              placeholder="Confirm PIN"
+              placeholder={t("pinConfirmPlaceholder")}
               value={confirmPin}
               onChange={(e) => {
                 setConfirmPin(e.target.value.replace(/\D/g, ""));
@@ -177,11 +178,11 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
             </button>
           ) : (
             <button className="lock-btn lock-btn-primary" onClick={handleSetup}>
-              Set PIN
+              {t("pinSetBtn")}
             </button>
           )}
           <button className="lock-btn lock-btn-skip" onClick={handleSkipSetup}>
-            Skip for now
+            {t("pinSkip")}
           </button>
         </div>
       </div>
@@ -192,8 +193,8 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
   return (
     <div className="lock-screen">
       <div className="lock-icon">&#x1F512;</div>
-      <h2 className="lock-title">Profile Filler</h2>
-      <p className="lock-subtitle">Enter PIN to unlock</p>
+      <h2 className="lock-title">{t("appTitle")}</h2>
+      <p className="lock-subtitle">{t("pinEnter")}</p>
 
       <div className="lock-form">
         <input
@@ -203,7 +204,7 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
           inputMode="numeric"
           pattern="[0-9]*"
           maxLength={8}
-          placeholder="Enter PIN"
+          placeholder={t("pinPlaceholder")}
           value={pin}
           onChange={(e) => {
             setPin(e.target.value.replace(/\D/g, ""));
@@ -214,7 +215,7 @@ export default function LockScreen({ onUnlock }: LockScreenProps) {
         />
         {error && <p className="lock-error">{error}</p>}
         <button className="lock-btn lock-btn-primary" onClick={handleUnlock}>
-          Unlock
+          {t("pinUnlockBtn")}
         </button>
       </div>
     </div>

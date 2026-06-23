@@ -1247,11 +1247,11 @@ function createBadge(): HTMLDivElement {
 
   const textSpan = document.createElement("span");
   textSpan.id = "pf-badge-text";
-  textSpan.textContent = "fields detected";
+  textSpan.textContent = chrome.i18n.getMessage("fieldsDetected") || "fields detected";
 
   const closeBtn = document.createElement("span");
   closeBtn.textContent = "\u00D7";
-  closeBtn.title = "Dismiss";
+  closeBtn.title = chrome.i18n.getMessage("dismiss") || "Dismiss";
   closeBtn.style.cssText = `
     margin-left: 4px;
     font-size: 16px;
@@ -1296,7 +1296,9 @@ function updateBadge(fieldCount: number): void {
   const countEl = document.getElementById("pf-badge-count");
   const textEl = document.getElementById("pf-badge-text");
   if (countEl) countEl.textContent = String(fieldCount);
-  if (textEl) textEl.textContent = fieldCount === 1 ? "field detected" : "fields detected";
+  if (textEl) textEl.textContent = fieldCount === 1
+    ? (chrome.i18n.getMessage("fieldDetected") || "field detected")
+    : (chrome.i18n.getMessage("fieldsDetected") || "fields detected");
   badge.style.display = "flex";
 }
 
