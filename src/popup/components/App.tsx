@@ -18,11 +18,12 @@ import { isSyncEnabled, setSyncEnabled, pullFromSync, onSyncChanged } from "../.
 import FieldEditor from "./FieldEditor";
 import PreviewTable from "./PreviewTable";
 import ImportExport from "./ImportExport";
+import ShareManager from "./ShareManager";
 import TemplateManager from "./TemplateManager";
 import LockScreen from "./LockScreen";
 import "../styles/popup.css";
 
-type TabId = "edit" | "preview" | "import" | "templates";
+type TabId = "edit" | "preview" | "import" | "templates" | "share";
 
 /**
  * Ensure the content script is injected into the given tab.
@@ -469,8 +470,20 @@ export default function App() {
     await handleFieldsChange([...activeProfile.fields, newGroup]);
   };
 
+  const handleImportSharedProfile = async (name: string, fields: ProfileField[]) => {
+    const newProfile: Profile = {
+      profileId: generateId(),
+      name,
+      fields,
+    };
+    const newProfiles = [...profiles, newProfile];
+    setProfiles(newProfiles);
+    await saveProfiles(newProfiles);
+    setActiveId(newProfile.profileId);
+    await setActiveProfileId(newProfile.profileId);
+  };
+
   const handleInsertTemplate = async (content: string) => {
-    // Interpolate profile placeholders like {{firstName}}, {{email}}, etc.
     let interpolated = content;
     if (activeProfile) {
       const flat = flattenFields(activeProfile.fields);
@@ -597,6 +610,12 @@ export default function App() {
         >
           Templates
         </button>
+        <button
+          className={`tab-btn ${activeTab === "share" ? "active" : ""}`}
+          onClick={() => setActiveTab("share")}
+        >
+          Share
+        </button>
       </div>
 
       <div className="tab-content">
@@ -649,6 +668,15 @@ export default function App() {
 
         {activeTab === "templates" && (
           <TemplateManager onInsert={handleInsertTemplate} />
+        )}
+
+        {activeTab === "share" && (
+          <ShareManager
+            profiles={profiles}
+            activeProfileId={activeProfileId}
+            onImportProfile={handleImportSharedProfile}
+            onStatus={showStatus}
+          />
         )}
       </div>
 
