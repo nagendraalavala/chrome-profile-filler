@@ -1,5 +1,5 @@
 import { FlattenedField, MatchResult, FormFieldInfo, SiteMapping } from "../models/profile";
-import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS, SYNONYM_GROUPS, TOKEN_ABBREVIATIONS, COMPOSITE_RULES, CompositeRule } from "./aliases";
+import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS, SYNONYM_GROUPS, TOKEN_ABBREVIATIONS, COMPOSITE_RULES, CompositeRule, detectFormType, getFormTypeBoost, FormType } from "./aliases";
 
 function normalize(str: string): string {
   return str
@@ -498,6 +498,9 @@ export function matchFields(
 ): MatchResult[] {
   const results: MatchResult[] = [];
 
+  // Detect form type for context-aware scoring
+  const formType: FormType = detectFormType(formFields);
+
   // Separate attachment-capable fields from regular profile fields
   const attachmentFields = profileFields.filter((f) => f.isAttachment);
   const regularFields = profileFields.filter((f) => !f.isAttachment);
@@ -539,7 +542,9 @@ export function matchFields(
     let bestScore = 0;
 
     for (const profileField of candidatePool) {
-      const score = scoreCandidate(formField, profileField.dotKey);
+      let score = scoreCandidate(formField, profileField.dotKey);
+      // Apply form type context boost
+      score *= getFormTypeBoost(formType, profileField.dotKey);
       if (score > bestScore) {
         bestScore = score;
         bestMatch = profileField;

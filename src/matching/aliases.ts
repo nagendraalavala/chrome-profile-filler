@@ -4,18 +4,26 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   "firstName": [
     "first_name", "fname", "first", "given_name", "givenname",
     "applicant_first_name", "candidate_first_name", "your_first_name",
+    "signup_first_name", "register_first_name", "checkout_first_name",
+    "billing_first_name", "shipping_first_name",
   ],
   "lastName": [
     "last_name", "lname", "last", "surname", "family_name", "familyname",
     "applicant_last_name", "candidate_last_name", "your_last_name",
+    "signup_last_name", "register_last_name", "checkout_last_name",
+    "billing_last_name", "shipping_last_name",
   ],
   "email": [
     "email_address", "emailaddress", "e_mail", "mail", "your_email",
     "applicant_email", "candidate_email", "contact_email", "primary_email",
+    "signup_email", "register_email", "checkout_email", "order_email",
+    "billing_email", "account_email", "login_email",
   ],
   "phone": [
     "phone_number", "phonenumber", "telephone", "tel", "mobile",
     "mobile_number", "cell", "cell_phone", "contact_phone", "primary_phone",
+    "shipping_phone", "billing_phone", "order_phone", "checkout_phone",
+    "delivery_phone",
   ],
 
   // Address
@@ -23,6 +31,9 @@ export const FIELD_ALIASES: Record<string, string[]> = {
     "street", "street_address", "address1", "address_line_1", "addressline1",
     "mailing_address", "home_address", "address_line1", "street_address_1",
     "residential_address", "primary_address",
+    "shipping_address", "shipping_street", "ship_address", "ship_street",
+    "billing_address", "billing_street", "bill_address", "bill_street",
+    "delivery_address", "delivery_street",
   ],
   "address.line2": [
     "address2", "address_line_2", "addressline2", "apt", "apartment",
@@ -31,18 +42,22 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   "address.city": [
     "city", "city_name", "town", "municipality", "locality",
     "candidate_city", "home_city", "mailing_city",
+    "shipping_city", "ship_city", "billing_city", "bill_city", "delivery_city",
   ],
   "address.state": [
     "state", "province", "region", "state_name", "state_province",
     "candidate_state", "home_state", "mailing_state",
+    "shipping_state", "ship_state", "billing_state", "bill_state", "delivery_state",
   ],
   "address.zip": [
     "zip", "zipcode", "zip_code", "postal_code", "postalcode", "postcode",
     "candidate_postal_code", "mailing_zip",
+    "shipping_zip", "ship_zip", "billing_zip", "bill_zip", "delivery_zip",
   ],
   "address.country": [
     "country", "country_name", "nation", "country_code",
     "candidate_country", "home_country", "mailing_country",
+    "shipping_country", "ship_country", "billing_country", "bill_country", "delivery_country",
   ],
 
   // Work Experience
@@ -225,17 +240,23 @@ export const SYNONYM_GROUPS: string[][] = [
    "cell", "cellphone", "cell_phone", "mobile_number", "contact_phone",
    "ph", "phn", "contact_number", "phone_no", "mob", "mobile_no"],
 
-  // Address
+  // Address (includes shipping/billing/delivery variants)
   ["street", "street_address", "address1", "address_line_1", "line1",
    "address_line1", "addr", "addr1", "address", "mailing_address",
-   "home_address", "residential_address", "primary_address", "addressline1"],
+   "home_address", "residential_address", "primary_address", "addressline1",
+   "shipping_address", "shipping_street", "ship_address", "ship_street",
+   "billing_address", "billing_street", "bill_address", "delivery_address"],
   ["address2", "addr2", "address_line_2", "line2", "apt", "apartment",
    "suite", "unit", "address_line2", "addressline2", "street_address_2"],
-  ["city", "city_name", "town", "municipality", "locality"],
-  ["state", "province", "region", "state_name", "state_province"],
+  ["city", "city_name", "town", "municipality", "locality",
+   "shipping_city", "ship_city", "billing_city", "bill_city", "delivery_city"],
+  ["state", "province", "region", "state_name", "state_province",
+   "shipping_state", "ship_state", "billing_state", "bill_state", "delivery_state"],
   ["zip", "zipcode", "zip_code", "postal_code", "postalcode", "postcode",
-   "pin", "pincode", "pin_code"],
-  ["country", "country_name", "nation", "country_code"],
+   "pin", "pincode", "pin_code",
+   "shipping_zip", "ship_zip", "billing_zip", "bill_zip", "delivery_zip"],
+  ["country", "country_name", "nation", "country_code",
+   "shipping_country", "ship_country", "billing_country", "bill_country"],
 
   // Work
   ["company", "company_name", "employer", "organization", "org",
@@ -377,6 +398,15 @@ export const TOKEN_ABBREVIATIONS: Record<string, string[]> = {
   "pp": ["passport"],
   "id": ["identification"],
   "auth": ["authorization"],
+  "ship": ["shipping"],
+  "bill": ["billing"],
+  "del": ["delivery"],
+  "acct": ["account"],
+  "pwd": ["password"],
+  "usr": ["username"],
+  "cc": ["credit", "card"],
+  "cvc": ["card", "verification"],
+  "cvv": ["card", "verification"],
 };
 
 /**
@@ -466,4 +496,192 @@ export const SECTION_BOOST_KEYWORDS: Record<string, string[]> = {
     "documents", "attachments", "uploads", "files", "upload documents",
     "required documents", "supporting documents",
   ],
+  "shipping": [
+    "shipping", "ship to", "shipping address", "shipping information",
+    "delivery", "delivery address", "deliver to", "shipping details",
+  ],
+  "billing": [
+    "billing", "bill to", "billing address", "billing information",
+    "payment address", "billing details", "invoice address",
+  ],
+  "checkout": [
+    "checkout", "order", "purchase", "buy", "cart", "payment",
+    "complete order", "place order", "order summary",
+  ],
+  "signup": [
+    "sign up", "register", "create account", "join", "get started",
+    "registration", "new account", "create your account",
+  ],
+  "contact": [
+    "contact", "contact us", "get in touch", "contact information",
+    "contact details", "reach us", "send message", "inquiry",
+  ],
 };
+
+// ---------------------------------------------------------------------------
+// Form type detection
+// ---------------------------------------------------------------------------
+
+export type FormType =
+  | "checkout"
+  | "signup"
+  | "login"
+  | "contact"
+  | "job_application"
+  | "shipping"
+  | "billing"
+  | "unknown";
+
+interface FormTypeSignal {
+  type: FormType;
+  keywords: string[];
+}
+
+const FORM_TYPE_SIGNALS: FormTypeSignal[] = [
+  {
+    type: "checkout",
+    keywords: [
+      "checkout", "place order", "complete purchase", "order summary",
+      "payment method", "pay now", "buy now", "add to cart",
+      "credit card", "card number", "expiration", "cvv", "cvc",
+    ],
+  },
+  {
+    type: "shipping",
+    keywords: [
+      "shipping address", "ship to", "delivery address", "shipping method",
+      "shipping information", "deliver to", "shipping details",
+    ],
+  },
+  {
+    type: "billing",
+    keywords: [
+      "billing address", "bill to", "billing information",
+      "payment address", "invoice address", "billing details",
+    ],
+  },
+  {
+    type: "signup",
+    keywords: [
+      "sign up", "register", "create account", "create your account",
+      "join now", "get started", "new account", "registration",
+      "confirm password", "create password", "username",
+    ],
+  },
+  {
+    type: "login",
+    keywords: [
+      "sign in", "log in", "login", "welcome back",
+      "forgot password", "remember me",
+    ],
+  },
+  {
+    type: "contact",
+    keywords: [
+      "contact us", "send message", "get in touch", "inquiry",
+      "contact form", "reach out", "leave a message", "your message",
+    ],
+  },
+  {
+    type: "job_application",
+    keywords: [
+      "apply now", "job application", "submit application", "resume",
+      "cover letter", "work experience", "education history",
+      "years of experience", "current employer", "linkedin profile",
+    ],
+  },
+];
+
+/**
+ * Detect the type of form on the page based on surrounding text signals.
+ * Analyzes form labels, buttons, headings, and nearby text.
+ */
+export function detectFormType(formFields: { name: string; label: string; placeholder: string }[]): FormType {
+  const signals: string[] = [];
+
+  // Collect signals from form fields
+  for (const field of formFields) {
+    if (field.name) signals.push(field.name.toLowerCase());
+    if (field.label) signals.push(field.label.toLowerCase());
+    if (field.placeholder) signals.push(field.placeholder.toLowerCase());
+  }
+
+  // Collect signals from page headings and buttons
+  const headings = document.querySelectorAll("h1, h2, h3, h4, legend, .form-title, .section-title");
+  headings.forEach((el) => {
+    const text = el.textContent?.trim().toLowerCase();
+    if (text) signals.push(text);
+  });
+
+  const buttons = document.querySelectorAll("button, input[type='submit'], [role='button']");
+  buttons.forEach((el) => {
+    const text = (el.textContent?.trim() || (el as HTMLInputElement).value || "").toLowerCase();
+    if (text) signals.push(text);
+  });
+
+  const joinedText = signals.join(" ");
+
+  // Score each form type
+  let bestType: FormType = "unknown";
+  let bestScore = 0;
+
+  for (const signal of FORM_TYPE_SIGNALS) {
+    let score = 0;
+    for (const keyword of signal.keywords) {
+      if (joinedText.includes(keyword)) {
+        score += keyword.split(" ").length; // multi-word keywords score higher
+      }
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestType = signal.type;
+    }
+  }
+
+  return bestType;
+}
+
+/**
+ * Get boosted confidence for a match based on detected form type.
+ * Returns a multiplier (1.0 = no boost, >1.0 = boosted).
+ */
+export function getFormTypeBoost(formType: FormType, profileKey: string): number {
+  const key = profileKey.toLowerCase();
+
+  switch (formType) {
+    case "checkout":
+    case "shipping":
+    case "billing":
+      // Boost address, name, phone, email fields on checkout/shipping/billing forms
+      if (key.includes("address") || key.includes("city") || key.includes("state") ||
+          key.includes("zip") || key.includes("country") || key.includes("phone") ||
+          key.includes("email") || key.includes("firstname") || key.includes("lastname") ||
+          key.includes("name")) {
+        return 1.15;
+      }
+      break;
+    case "signup":
+      // Boost name, email, phone on signup forms
+      if (key.includes("email") || key.includes("firstname") || key.includes("lastname") ||
+          key.includes("name") || key.includes("phone")) {
+        return 1.15;
+      }
+      break;
+    case "contact":
+      // Boost name, email, phone, message on contact forms
+      if (key.includes("email") || key.includes("name") || key.includes("phone") ||
+          key.includes("message")) {
+        return 1.15;
+      }
+      break;
+    case "job_application":
+      // Boost work, education, document fields on job forms
+      if (key.includes("work") || key.includes("education") || key.includes("resume") ||
+          key.includes("linkedin") || key.includes("experience") || key.includes("documents")) {
+        return 1.15;
+      }
+      break;
+  }
+
+  return 1.0;
+}
