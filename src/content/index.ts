@@ -1,4 +1,5 @@
-import { FormFieldInfo, ExtensionMessage } from "../models/profile";
+import { FormFieldInfo, FlattenedField, ExtensionMessage } from "../models/profile";
+import { matchFields } from "../matching/engine";
 
 function findLabel(element: HTMLElement): string {
   const id = element.getAttribute("id");
@@ -1160,6 +1161,43 @@ function fillField(
 }
 
 // ---------------------------------------------------------------------------
+// Toast notification
+// ---------------------------------------------------------------------------
+
+function showFillToast(filledCount: number, profileName: string): void {
+  const existing = document.getElementById("pf-fill-toast");
+  if (existing) existing.remove();
+
+  const toast = document.createElement("div");
+  toast.id = "pf-fill-toast";
+  toast.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 2147483647;
+    padding: 12px 20px;
+    background: ${filledCount > 0 ? "#10b981" : "#ef4444"};
+    color: white;
+    border-radius: 12px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    transition: opacity 0.3s;
+    opacity: 1;
+  `;
+  toast.textContent = filledCount > 0
+    ? `Filled ${filledCount} field${filledCount !== 1 ? "s" : ""} with "${profileName}"`
+    : `No matching fields found for "${profileName}"`;
+
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = "0";
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+// ---------------------------------------------------------------------------
 // Auto-detect floating badge
 // ---------------------------------------------------------------------------
 
@@ -1389,6 +1427,44 @@ chrome.runtime.onMessage.addListener(
       }
 
       sendResponse({ action: "FILL_RESULT", data: { filledCount } });
+    } else if (message.action === "PING") {
+      sendResponse({ action: "PONG" });
+    } else if (message.action === "CONTEXT_MENU_FILL") {
+      const { flatFields, profileName } = message.data as {
+        flatFields: FlattenedField[];
+        profileName: string;
+      };
+
+      // Scan, match, and fill in one step
+      const fields = scanFormFields();
+      const domain = window.location.hostname;
+      // matchFields returns one result per form field, in order
+      const matches = matchFields(fields, flatFields, [], domain);
+
+      let filledCount = 0;
+      for (let i = 0; i < matches.length; i++) {
+        const m = matches[i];
+        if (!m.selected || !m.value) continue;
+        if (i >= fields.length) continue;
+        const field = fields[i];
+
+        if (m.isAttachment && m.attachment?.dataUrl && m.attachment?.fileName) {
+          let attached = false;
+          if (field.element instanceof HTMLInputElement && field.element.type === "file") {
+            attached = fillFileInput(field.element, m.attachment.dataUrl, m.attachment.fileName);
+          }
+          if (!attached) {
+            attached = attachToEmailCompose(field.element, m.attachment.dataUrl, m.attachment.fileName);
+          }
+          if (attached) filledCount++;
+        } else {
+          fillField(field.element, m.value, field.isContentEditable);
+          filledCount++;
+        }
+      }
+
+      showFillToast(filledCount, profileName);
+      sendResponse({ action: "CONTEXT_FILL_RESULT", data: { filledCount } });
     }
 
     return true;
