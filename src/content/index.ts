@@ -1340,7 +1340,9 @@ let lastScannedFields: FormFieldInfo[] = [];
 
 chrome.runtime.onMessage.addListener(
   (message: ExtensionMessage, _sender, sendResponse) => {
-    if (message.action === "GET_FORM_FIELDS") {
+    if (message.action === "PING") {
+      sendResponse({ action: "PONG" });
+    } else if (message.action === "GET_FORM_FIELDS") {
       lastScannedFields = scanFormFields();
       const serialized = serializeFormFields(lastScannedFields);
       sendResponse({ action: "FORM_FIELDS_RESULT", data: serialized });
@@ -1425,18 +1427,14 @@ chrome.runtime.onMessage.addListener(
       }
 
       sendResponse({ action: "FILL_RESULT", data: { filledCount } });
-    } else if (message.action === "PING") {
-      sendResponse({ action: "PONG" });
     } else if (message.action === "CONTEXT_MENU_FILL") {
       const { flatFields, profileName } = message.data as {
         flatFields: FlattenedField[];
         profileName: string;
       };
 
-      // Scan, match, and fill in one step
       const fields = scanFormFields();
       const domain = window.location.hostname;
-      // matchFields returns one result per form field, in order
       const matches = matchFields(fields, flatFields, [], domain);
 
       let filledCount = 0;
