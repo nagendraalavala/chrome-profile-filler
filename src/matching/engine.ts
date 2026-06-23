@@ -1,5 +1,6 @@
 import { FlattenedField, MatchResult, FormFieldInfo, SiteMapping } from "../models/profile";
-import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS, SYNONYM_GROUPS, TOKEN_ABBREVIATIONS, COMPOSITE_RULES, CompositeRule } from "./aliases";
+import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS, SYNONYM_GROUPS, TOKEN_ABBREVIATIONS, COMPOSITE_RULES, CompositeRule, detectFormType, getFormTypeBoost, FormType } from "./aliases";
+import { getI18nAliases } from "./i18nAliases";
 
 function normalize(str: string): string {
   return str
@@ -88,6 +89,18 @@ function buildAliasLookup(): Map<string, string> {
     lookup.set(normalize(profileKey), profileKey);
     for (const alias of aliases) {
       lookup.set(normalize(alias), profileKey);
+    }
+  }
+  // Merge multilingual aliases
+  for (const [profileKey, aliases] of Object.entries(getI18nAliases())) {
+    if (!lookup.has(normalize(profileKey))) {
+      lookup.set(normalize(profileKey), profileKey);
+    }
+    for (const alias of aliases) {
+      const norm = normalize(alias);
+      if (!lookup.has(norm)) {
+        lookup.set(norm, profileKey);
+      }
     }
   }
   return lookup;
@@ -498,6 +511,9 @@ export function matchFields(
 ): MatchResult[] {
   const results: MatchResult[] = [];
 
+  // Detect form type for context-aware scoring
+  const formType: FormType = detectFormType(formFields);
+
   // Separate attachment-capable fields from regular profile fields
   const attachmentFields = profileFields.filter((f) => f.isAttachment);
   const regularFields = profileFields.filter((f) => !f.isAttachment);
@@ -539,7 +555,9 @@ export function matchFields(
     let bestScore = 0;
 
     for (const profileField of candidatePool) {
-      const score = scoreCandidate(formField, profileField.dotKey);
+      let score = scoreCandidate(formField, profileField.dotKey);
+      // Apply form type context boost
+      score *= getFormTypeBoost(formType, profileField.dotKey);
       if (score > bestScore) {
         bestScore = score;
         bestMatch = profileField;

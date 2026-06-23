@@ -13,14 +13,17 @@ import {
   createDefaultProfile,
 } from "../../storage/profileStorage";
 import { updateLastActivity } from "../../storage/pinStorage";
+import { t } from "../../i18n";
+import { isSyncEnabled, setSyncEnabled, pullFromSync, onSyncChanged } from "../../storage/syncStorage";
 import FieldEditor from "./FieldEditor";
 import PreviewTable from "./PreviewTable";
 import ImportExport from "./ImportExport";
 import ShareManager from "./ShareManager";
+import TemplateManager from "./TemplateManager";
 import LockScreen from "./LockScreen";
 import "../styles/popup.css";
 
-type TabId = "edit" | "preview" | "import" | "share";
+type TabId = "edit" | "preview" | "import" | "templates" | "share";
 
 /**
  * Ensure the content script is injected into the given tab.
@@ -84,6 +87,7 @@ export default function App() {
   const [statusMsg, setStatusMsg] = useState("");
   const [statusType, setStatusType] = useState<"success" | "error">("success");
   const [isScanning, setIsScanning] = useState(false);
+  const [syncOn, setSyncOn] = useState(false);
 
   const handleUnlock = useCallback(() => {
     setIsUnlocked(true);
@@ -123,9 +127,16 @@ export default function App() {
 
   const activeProfile = profiles.find((p) => p.profileId === activeProfileId) || null;
 
-  // Load profiles on mount
+  // Load profiles on mount; pull from sync if enabled
   useEffect(() => {
     (async () => {
+      const syncEnabled = await isSyncEnabled();
+      setSyncOn(syncEnabled);
+
+      if (syncEnabled) {
+        await pullFromSync();
+      }
+
       let loaded = await getProfiles();
       if (loaded.length === 0) {
         const defaultProfile = createDefaultProfile();
@@ -141,6 +152,17 @@ export default function App() {
         setActiveId(loaded[0].profileId);
       }
     })();
+  }, []);
+
+  // Listen for sync changes from other devices
+  useEffect(() => {
+    onSyncChanged(async () => {
+      const updated = await pullFromSync();
+      if (updated) {
+        const loaded = await getProfiles();
+        setProfiles(loaded);
+      }
+    });
   }, []);
 
   // Update flat fields when active profile changes
@@ -461,6 +483,34 @@ export default function App() {
     await setActiveProfileId(newProfile.profileId);
   };
 
+  const handleInsertTemplate = async (content: string) => {
+    let interpolated = content;
+    if (activeProfile) {
+      const flat = flattenFields(activeProfile.fields);
+      interpolated = content.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (_match, key: string) => {
+        const field = flat.find(
+          (f) => f.dotKey.toLowerCase() === key.toLowerCase() || f.label.toLowerCase() === key.toLowerCase(),
+        );
+        return field?.value || `{{${key}}}`;
+      });
+    }
+
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) {
+        showStatus("No active tab found", "error");
+        return;
+      }
+      await sendMessageWithInjection(tab.id, {
+        action: "INSERT_TEMPLATE",
+        data: { text: interpolated },
+      });
+      showStatus("Template inserted", "success");
+    } catch {
+      showStatus("Failed to insert template", "error");
+    }
+  };
+
   if (!isUnlocked) {
     return (
       <div className="app-container">
@@ -472,7 +522,7 @@ export default function App() {
   return (
     <div className="app-container">
       <div className="app-header">
-        <h1>Profile Filler</h1>
+        <h1>{t("appTitle")}</h1>
         <div className="header-actions">
           {!isFullTab && (
             <button
@@ -480,23 +530,35 @@ export default function App() {
               onClick={handleOpenInTab}
               title="Open in full tab (required for document uploads)"
             >
-              Open in Tab
+              {t("openInTab")}
             </button>
           )}
+          <button
+            className={`header-btn sync-btn ${syncOn ? "sync-on" : ""}`}
+            onClick={async () => {
+              const next = !syncOn;
+              await setSyncEnabled(next);
+              setSyncOn(next);
+              showStatus(next ? "Sync enabled — profiles will sync across devices" : "Sync disabled", "success");
+            }}
+            title={syncOn ? "Cloud sync is ON — click to disable" : "Enable cloud sync across devices"}
+          >
+            {syncOn ? "Sync ON" : "Sync"}
+          </button>
           <button
             className="header-btn"
             onClick={handleScanSelection}
             disabled={isScanning}
             title="Scan only the highlighted/selected area"
           >
-            {isScanning ? "..." : "Scan Selection"}
+            {isScanning ? t("scanning") : t("scanSelection")}
           </button>
           <button
             className="header-btn"
             onClick={handleScanForm}
             disabled={isScanning}
           >
-            {isScanning ? "..." : "Scan Form"}
+            {isScanning ? t("scanning") : t("scanForm")}
           </button>
         </div>
       </div>
@@ -528,19 +590,25 @@ export default function App() {
           className={`tab-btn ${activeTab === "edit" ? "active" : ""}`}
           onClick={() => setActiveTab("edit")}
         >
-          Edit Profile
+          {t("editTab")}
         </button>
         <button
           className={`tab-btn ${activeTab === "preview" ? "active" : ""}`}
           onClick={() => setActiveTab("preview")}
         >
-          Preview{matches.length > 0 ? ` (${matches.filter((m) => m.selected).length}/${matches.length})` : ""}
+          {t("previewTab")}{matches.length > 0 ? ` (${matches.filter((m) => m.selected).length}/${matches.length})` : ""}
         </button>
         <button
           className={`tab-btn ${activeTab === "import" ? "active" : ""}`}
           onClick={() => setActiveTab("import")}
         >
-          Import/Export
+          {t("importTab")}
+        </button>
+        <button
+          className={`tab-btn ${activeTab === "templates" ? "active" : ""}`}
+          onClick={() => setActiveTab("templates")}
+        >
+          Templates
         </button>
         <button
           className={`tab-btn ${activeTab === "share" ? "active" : ""}`}
@@ -559,7 +627,7 @@ export default function App() {
             />
             <div className="add-btn-row" style={{ padding: "0 4px" }}>
               <button className="add-btn" onClick={handleAddTopLevelGroup}>
-                + Group
+                {t("addGroup")}
               </button>
             </div>
           </div>
@@ -598,6 +666,10 @@ export default function App() {
           />
         )}
 
+        {activeTab === "templates" && (
+          <TemplateManager onInsert={handleInsertTemplate} />
+        )}
+
         {activeTab === "share" && (
           <ShareManager
             profiles={profiles}
@@ -615,7 +687,7 @@ export default function App() {
             onClick={handleFillFields}
             disabled={!matches.some((m) => m.selected)}
           >
-            Fill Selected Fields ({matches.filter((m) => m.selected).length})
+            {t("fillSelected")} ({matches.filter((m) => m.selected).length})
           </button>
           <button className="save-mapping-btn" onClick={handleSaveMappings}>
             Save Mappings

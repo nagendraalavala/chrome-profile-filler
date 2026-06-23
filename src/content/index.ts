@@ -1,4 +1,5 @@
-import { FormFieldInfo, ExtensionMessage } from "../models/profile";
+import { FormFieldInfo, FlattenedField, ExtensionMessage } from "../models/profile";
+import { matchFields } from "../matching/engine";
 
 function findLabel(element: HTMLElement): string {
   const id = element.getAttribute("id");
@@ -1160,6 +1161,43 @@ function fillField(
 }
 
 // ---------------------------------------------------------------------------
+// Toast notification
+// ---------------------------------------------------------------------------
+
+function showFillToast(filledCount: number, profileName: string): void {
+  const existing = document.getElementById("pf-fill-toast");
+  if (existing) existing.remove();
+
+  const toast = document.createElement("div");
+  toast.id = "pf-fill-toast";
+  toast.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 2147483647;
+    padding: 12px 20px;
+    background: ${filledCount > 0 ? "#10b981" : "#ef4444"};
+    color: white;
+    border-radius: 12px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    transition: opacity 0.3s;
+    opacity: 1;
+  `;
+  toast.textContent = filledCount > 0
+    ? `Filled ${filledCount} field${filledCount !== 1 ? "s" : ""} with "${profileName}"`
+    : `No matching fields found for "${profileName}"`;
+
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = "0";
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+// ---------------------------------------------------------------------------
 // Auto-detect floating badge
 // ---------------------------------------------------------------------------
 
@@ -1209,11 +1247,11 @@ function createBadge(): HTMLDivElement {
 
   const textSpan = document.createElement("span");
   textSpan.id = "pf-badge-text";
-  textSpan.textContent = "fields detected";
+  textSpan.textContent = chrome.i18n.getMessage("fieldsDetected") || "fields detected";
 
   const closeBtn = document.createElement("span");
   closeBtn.textContent = "\u00D7";
-  closeBtn.title = "Dismiss";
+  closeBtn.title = chrome.i18n.getMessage("dismiss") || "Dismiss";
   closeBtn.style.cssText = `
     margin-left: 4px;
     font-size: 16px;
@@ -1258,7 +1296,9 @@ function updateBadge(fieldCount: number): void {
   const countEl = document.getElementById("pf-badge-count");
   const textEl = document.getElementById("pf-badge-text");
   if (countEl) countEl.textContent = String(fieldCount);
-  if (textEl) textEl.textContent = fieldCount === 1 ? "field detected" : "fields detected";
+  if (textEl) textEl.textContent = fieldCount === 1
+    ? (chrome.i18n.getMessage("fieldDetected") || "field detected")
+    : (chrome.i18n.getMessage("fieldsDetected") || "fields detected");
   badge.style.display = "flex";
 }
 
@@ -1295,6 +1335,62 @@ observer.observe(document.body, {
 });
 
 // ---------------------------------------------------------------------------
+// Template insertion
+// ---------------------------------------------------------------------------
+
+function insertTemplateText(text: string): boolean {
+  // Try the currently focused/active element first
+  const active = document.activeElement;
+  if (active && insertIntoElement(active as HTMLElement, text)) {
+    return true;
+  }
+
+  // Fallback: find the first visible textarea or contenteditable
+  const candidates = document.querySelectorAll<HTMLElement>(
+    "textarea, [contenteditable='true'], [role='textbox']",
+  );
+  for (const el of candidates) {
+    if (el.offsetParent !== null && insertIntoElement(el, text)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function insertIntoElement(el: HTMLElement, text: string): boolean {
+  if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    el.value = el.value.slice(0, start) + text + el.value.slice(end);
+    el.selectionStart = el.selectionEnd = start + text.length;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }
+
+  if (el.isContentEditable || el.getAttribute("role") === "textbox") {
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      if (el.contains(range.commonAncestorContainer)) {
+        range.deleteContents();
+        range.insertNode(document.createTextNode(text));
+        range.collapse(false);
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        return true;
+      }
+    }
+    // No selection inside element — append to end
+    el.focus();
+    document.execCommand("insertText", false, text);
+    return true;
+  }
+
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Message listener
 // ---------------------------------------------------------------------------
 
@@ -1302,7 +1398,9 @@ let lastScannedFields: FormFieldInfo[] = [];
 
 chrome.runtime.onMessage.addListener(
   (message: ExtensionMessage, _sender, sendResponse) => {
-    if (message.action === "GET_FORM_FIELDS") {
+    if (message.action === "PING") {
+      sendResponse({ action: "PONG" });
+    } else if (message.action === "GET_FORM_FIELDS") {
       lastScannedFields = scanFormFields();
       const serialized = serializeFormFields(lastScannedFields);
       sendResponse({ action: "FORM_FIELDS_RESULT", data: serialized });
@@ -1387,6 +1485,44 @@ chrome.runtime.onMessage.addListener(
       }
 
       sendResponse({ action: "FILL_RESULT", data: { filledCount } });
+    } else if (message.action === "CONTEXT_MENU_FILL") {
+      const { flatFields, profileName } = message.data as {
+        flatFields: FlattenedField[];
+        profileName: string;
+      };
+
+      const fields = scanFormFields();
+      const domain = window.location.hostname;
+      const matches = matchFields(fields, flatFields, [], domain);
+
+      let filledCount = 0;
+      for (let i = 0; i < matches.length; i++) {
+        const m = matches[i];
+        if (!m.selected || !m.value) continue;
+        if (i >= fields.length) continue;
+        const field = fields[i];
+
+        if (m.isAttachment && m.attachment?.dataUrl && m.attachment?.fileName) {
+          let attached = false;
+          if (field.element instanceof HTMLInputElement && field.element.type === "file") {
+            attached = fillFileInput(field.element, m.attachment.dataUrl, m.attachment.fileName);
+          }
+          if (!attached) {
+            attached = attachToEmailCompose(field.element, m.attachment.dataUrl, m.attachment.fileName);
+          }
+          if (attached) filledCount++;
+        } else {
+          fillField(field.element, m.value, field.isContentEditable);
+          filledCount++;
+        }
+      }
+
+      showFillToast(filledCount, profileName);
+      sendResponse({ action: "CONTEXT_FILL_RESULT", data: { filledCount } });
+    } else if (message.action === "INSERT_TEMPLATE") {
+      const { text } = message.data as { text: string };
+      const inserted = insertTemplateText(text);
+      sendResponse({ action: "INSERT_TEMPLATE_RESULT", data: { inserted } });
     }
 
     return true;
