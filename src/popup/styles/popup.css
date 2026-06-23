@@ -940,3 +940,211 @@ body {
 .lock-btn-skip:hover {
   color: #6b7280;
 }
+
+/* ===== Template Manager ===== */
+
+.template-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.template-toolbar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 0 4px;
+}
+
+.template-search {
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.template-filter {
+  padding: 5px 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 12px;
+  max-width: 110px;
+}
+
+.template-btn {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.template-btn.add {
+  background: #2563eb;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.template-btn.add:hover {
+  background: #1d4ed8;
+}
+
+.template-btn.save {
+  background: #16a34a;
+  color: #fff;
+}
+
+.template-btn.save:hover {
+  background: #15803d;
+}
+
+.template-btn.cancel {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.template-btn.cancel:hover {
+  background: #d1d5db;
+}
+
+.template-btn.insert {
+  background: #2563eb;
+  color: #fff;
+}
+
+.template-btn.insert:hover {
+  background: #1d4ed8;
+}
+
+.template-btn.edit {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.template-btn.edit:hover {
+  background: #d1d5db;
+}
+
+.template-btn.delete {
+  background: none;
+  color: #dc2626;
+  padding: 4px 6px;
+}
+
+.template-btn.delete:hover {
+  background: #fee2e2;
+}
+
+.template-empty {
+  text-align: center;
+  padding: 24px 12px;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.template-empty p {
+  margin: 4px 0;
+}
+
+.template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 4px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.template-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #fafafa;
+}
+
+.template-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.template-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: #111827;
+}
+
+.template-category-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: #dbeafe;
+  color: #1e40af;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.template-preview {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 6px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.template-card-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* Template Editor Form */
+
+.template-editor {
+  padding: 8px;
+}
+
+.template-editor h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: #111827;
+}
+
+.template-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.template-input {
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.template-select {
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.template-textarea {
+  padding: 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 100px;
+  line-height: 1.4;
+}
+
+.template-form-actions {
+  display: flex;
+  gap: 8px;
+}

@@ -1295,6 +1295,62 @@ observer.observe(document.body, {
 });
 
 // ---------------------------------------------------------------------------
+// Template insertion
+// ---------------------------------------------------------------------------
+
+function insertTemplateText(text: string): boolean {
+  // Try the currently focused/active element first
+  const active = document.activeElement;
+  if (active && insertIntoElement(active as HTMLElement, text)) {
+    return true;
+  }
+
+  // Fallback: find the first visible textarea or contenteditable
+  const candidates = document.querySelectorAll<HTMLElement>(
+    "textarea, [contenteditable='true'], [role='textbox']",
+  );
+  for (const el of candidates) {
+    if (el.offsetParent !== null && insertIntoElement(el, text)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function insertIntoElement(el: HTMLElement, text: string): boolean {
+  if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    el.value = el.value.slice(0, start) + text + el.value.slice(end);
+    el.selectionStart = el.selectionEnd = start + text.length;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }
+
+  if (el.isContentEditable || el.getAttribute("role") === "textbox") {
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      if (el.contains(range.commonAncestorContainer)) {
+        range.deleteContents();
+        range.insertNode(document.createTextNode(text));
+        range.collapse(false);
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        return true;
+      }
+    }
+    // No selection inside element — append to end
+    el.focus();
+    document.execCommand("insertText", false, text);
+    return true;
+  }
+
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Message listener
 // ---------------------------------------------------------------------------
 
@@ -1387,6 +1443,10 @@ chrome.runtime.onMessage.addListener(
       }
 
       sendResponse({ action: "FILL_RESULT", data: { filledCount } });
+    } else if (message.action === "INSERT_TEMPLATE") {
+      const { text } = message.data as { text: string };
+      const inserted = insertTemplateText(text);
+      sendResponse({ action: "INSERT_TEMPLATE_RESULT", data: { inserted } });
     }
 
     return true;

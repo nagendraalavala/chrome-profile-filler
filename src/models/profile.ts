@@ -75,7 +75,9 @@ export type MessageAction =
   | "GET_SELECTION_FIELDS"
   | "SCAN_RESULT"
   | "FILL_RESULT"
-  | "FORM_FIELDS_RESULT";
+  | "FORM_FIELDS_RESULT"
+  | "INSERT_TEMPLATE"
+  | "INSERT_TEMPLATE_RESULT";
 
 export interface ExtensionMessage {
   action: MessageAction;
