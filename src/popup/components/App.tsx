@@ -18,10 +18,11 @@ import { isSyncEnabled, setSyncEnabled, pullFromSync, onSyncChanged } from "../.
 import FieldEditor from "./FieldEditor";
 import PreviewTable from "./PreviewTable";
 import ImportExport from "./ImportExport";
+import TemplateManager from "./TemplateManager";
 import LockScreen from "./LockScreen";
 import "../styles/popup.css";
 
-type TabId = "edit" | "preview" | "import";
+type TabId = "edit" | "preview" | "import" | "templates";
 
 /**
  * Ensure the content script is injected into the given tab.
@@ -468,6 +469,35 @@ export default function App() {
     await handleFieldsChange([...activeProfile.fields, newGroup]);
   };
 
+  const handleInsertTemplate = async (content: string) => {
+    // Interpolate profile placeholders like {{firstName}}, {{email}}, etc.
+    let interpolated = content;
+    if (activeProfile) {
+      const flat = flattenFields(activeProfile.fields);
+      interpolated = content.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (_match, key: string) => {
+        const field = flat.find(
+          (f) => f.dotKey.toLowerCase() === key.toLowerCase() || f.label.toLowerCase() === key.toLowerCase(),
+        );
+        return field?.value || `{{${key}}}`;
+      });
+    }
+
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) {
+        showStatus("No active tab found", "error");
+        return;
+      }
+      await sendMessageWithInjection(tab.id, {
+        action: "INSERT_TEMPLATE",
+        data: { text: interpolated },
+      });
+      showStatus("Template inserted", "success");
+    } catch {
+      showStatus("Failed to insert template", "error");
+    }
+  };
+
   if (!isUnlocked) {
     return (
       <div className="app-container">
@@ -561,6 +591,12 @@ export default function App() {
         >
           {t("importTab")}
         </button>
+        <button
+          className={`tab-btn ${activeTab === "templates" ? "active" : ""}`}
+          onClick={() => setActiveTab("templates")}
+        >
+          Templates
+        </button>
       </div>
 
       <div className="tab-content">
@@ -609,6 +645,10 @@ export default function App() {
             onImport={handleImport}
             onStatusMessage={showStatus}
           />
+        )}
+
+        {activeTab === "templates" && (
+          <TemplateManager onInsert={handleInsertTemplate} />
         )}
       </div>
 
