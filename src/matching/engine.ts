@@ -1,5 +1,5 @@
 import { FlattenedField, MatchResult, FormFieldInfo, SiteMapping } from "../models/profile";
-import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS, SYNONYM_GROUPS, TOKEN_ABBREVIATIONS, COMPOSITE_RULES, CompositeRule, detectFormType, getFormTypeBoost, FormType } from "./aliases";
+import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS, SYNONYM_GROUPS, TOKEN_ABBREVIATIONS, COMPOSITE_RULES, CompositeRule, detectFormType, getFormTypeBoost, FormType, THIRD_PARTY_SECTION_PATTERNS, CANDIDATE_ONLY_KEYS } from "./aliases";
 import { getI18nAliases } from "./i18nAliases";
 import { calculateAge } from "../utils/smartValues";
 import { AutoFillRule } from "../models/autoFillRule";
@@ -63,6 +63,24 @@ function stripParenthetical(str: string): string {
 function getGroupPrefix(dotKey: string): string {
   const parts = dotKey.split(".");
   return parts.length > 1 ? parts[0] : "";
+}
+
+function isThirdPartySection(sectionHeading: string): boolean {
+  if (!sectionHeading) return false;
+  const norm = sectionHeading.toLowerCase();
+  return THIRD_PARTY_SECTION_PATTERNS.some((p) => norm.includes(p));
+}
+
+const candidateOnlySet = new Set(
+  CANDIDATE_ONLY_KEYS.map((k) => normalize(k))
+);
+
+function isCandidateOnlyKey(dotKey: string): boolean {
+  const normKey = normalize(dotKey);
+  if (candidateOnlySet.has(normKey)) return true;
+  const lastSeg = dotKey.split(".").pop() || "";
+  if (candidateOnlySet.has(normalize(lastSeg))) return true;
+  return false;
 }
 
 function getSectionBoost(
@@ -542,14 +560,12 @@ export function matchFields(
   // Detect form type for context-aware scoring
   const formType: FormType = detectFormType(formFields);
 
-  // Separate attachment-capable fields from regular profile fields
-  const attachmentFields = profileFields.filter((f) => f.isAttachment);
   const regularFields = profileFields.filter((f) => !f.isAttachment);
 
   for (const formField of formFields) {
     const signature = getFieldSignature(formField);
-    const isFileField = formField.isFileInput || formField.type === "file";
-    const candidatePool = isFileField ? attachmentFields : regularFields;
+    const candidatePool = regularFields;
+    const inThirdPartySection = isThirdPartySection(formField.sectionHeading);
 
     // 1. Check saved site mappings first
     const savedMapping = siteMappings.find(
@@ -573,6 +589,7 @@ export function matchFields(
           group: getGroupPrefix(matched.dotKey) || undefined,
           isAttachment: matched.isAttachment,
           attachment: matched.attachment,
+          sectionHeading: formField.sectionHeading,
         });
         continue;
       }
@@ -581,7 +598,8 @@ export function matchFields(
     // 2. Try composite matching FIRST (combine multiple profile fields)
     // This ensures "Full Name" is recognized as firstName+lastName before
     // token overlap with unrelated fields (e.g. "passport" in parenthetical)
-    if (!isFileField) {
+    // Skip composite/split matching in third-party sections
+    if (!inThirdPartySection) {
       const composite = tryCompositeMatch(formField, regularFields);
       if (composite) {
         const hasValue = !!(composite.value && composite.value.trim());
@@ -594,6 +612,7 @@ export function matchFields(
           confidence: composite.confidence,
           selected: hasValue,
           group: undefined,
+          sectionHeading: formField.sectionHeading,
         });
         continue;
       }
@@ -619,6 +638,7 @@ export function matchFields(
               confidence: 0.9,
               selected: true,
               group: undefined,
+              sectionHeading: formField.sectionHeading,
             });
             continue;
           }
@@ -638,6 +658,7 @@ export function matchFields(
           confidence: split.confidence,
           selected: hasValue,
           group: undefined,
+          sectionHeading: formField.sectionHeading,
         });
         continue;
       }
@@ -648,6 +669,10 @@ export function matchFields(
     let bestScore = 0;
 
     for (const profileField of candidatePool) {
+      // Skip candidate-only keys when field is in a third-party section
+      if (inThirdPartySection && isCandidateOnlyKey(profileField.dotKey)) {
+        continue;
+      }
       let score = scoreCandidate(formField, profileField.dotKey);
       score *= getFormTypeBoost(formType, profileField.dotKey);
       if (score > bestScore) {
@@ -656,9 +681,34 @@ export function matchFields(
       }
     }
 
+    // 8b. For third-party sections (References), try sub-key matching:
+    // If a profile field has a multi-line value containing key-value pairs,
+    // check if the form label matches one of those inner keys.
+    if (inThirdPartySection && (!bestMatch || bestScore < 0.3)) {
+      const normLabel = normalize(formField.label || formField.templateLabel || "");
+      if (normLabel) {
+        for (const profileField of regularFields) {
+          if (!profileField.value || !profileField.value.includes("\n")) continue;
+          const lines = profileField.value.split("\n").map((l) => l.trim()).filter(Boolean);
+          for (const line of lines) {
+            const m = line.match(/^(?:\d+\)\s*)?([^:|-]+?)\s*[:|-]\s*.+$/);
+            if (!m) continue;
+            const lineKey = normalize(m[1].trim());
+            if (lineKey === normLabel) {
+              bestMatch = profileField;
+              bestScore = 0.7;
+              break;
+            }
+          }
+          if (bestMatch && bestScore >= 0.7) break;
+        }
+      }
+    }
+
     if (bestMatch && bestScore >= 0.3) {
       const hasValue = !!(bestMatch.value && bestMatch.value.trim());
       const isAttach = !!(bestMatch.isAttachment && bestMatch.attachment?.dataUrl);
+      const autoSelect = hasValue && bestScore >= 0.6 && !isAttach && !inThirdPartySection;
       results.push({
         formFieldName: formField.name || formField.id,
         formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
@@ -666,10 +716,11 @@ export function matchFields(
         profileKey: bestMatch.dotKey,
         value: bestMatch.value,
         confidence: Math.round(bestScore * 100) / 100,
-        selected: (hasValue || isAttach) && bestScore >= 0.6 && !isAttach,
+        selected: autoSelect,
         group: getGroupPrefix(bestMatch.dotKey) || undefined,
         isAttachment: bestMatch.isAttachment,
         attachment: bestMatch.attachment,
+        sectionHeading: formField.sectionHeading,
       });
       continue;
     }
@@ -700,6 +751,7 @@ export function matchFields(
       confidence: 0,
       selected: false,
       group: undefined,
+      sectionHeading: formField.sectionHeading,
     });
   }
 

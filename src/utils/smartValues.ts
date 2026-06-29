@@ -16,12 +16,15 @@ type DateFormat =
   | "DD-MM-YYYY"
   | "YYYY/MM/DD"
   | "Month DD, YYYY"
-  | "DD Month YYYY";
+  | "DD Month YYYY"
+  | "MM/YYYY"
+  | "MM/YY"
+  | "YYYY";
 
 interface ParsedDate {
   year: number;
   month: number;
-  day: number;
+  day?: number;
 }
 
 const MONTH_NAMES = [
@@ -60,6 +63,36 @@ export function parseDate(value: string): ParsedDate | null {
     return { year: y, month: b, day: a };
   }
 
+  // MM/DD/YY or MM-DD-YY
+  m = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2})$/);
+  if (m) {
+    const yr = +m[3];
+    return { year: yr >= 50 ? 1900 + yr : 2000 + yr, month: +m[1], day: +m[2] };
+  }
+
+  // MM/YYYY or MM-YYYY
+  m = trimmed.match(/^(\d{1,2})[-/](\d{4})$/);
+  if (m) return { year: +m[2], month: +m[1] };
+
+  // MM/YY or MM-YY
+  m = trimmed.match(/^(\d{1,2})[-/](\d{2})$/);
+  if (m) {
+    const yr = +m[2];
+    return { year: yr >= 50 ? 1900 + yr : 2000 + yr, month: +m[1] };
+  }
+
+  // YYYY only
+  m = trimmed.match(/^(\d{4})$/);
+  if (m) return { year: +m[1], month: 1 };
+
+  // "May 15, 2024" or "15 May 2024"
+  // "Month YYYY"
+  m = trimmed.match(/^([a-zA-Z]+)\s+(\d{4})$/);
+  if (m) {
+    const mo = parseMonthName(m[1]);
+    if (mo > 0) return { year: +m[2], month: mo };
+  }
+
   // "May 15, 2024" or "15 May 2024"
   m = trimmed.match(/^(\w+)\s+(\d{1,2}),?\s+(\d{4})$/);
   if (m) {
@@ -95,6 +128,9 @@ function detectDateFormat(element: HTMLElement): DateFormat {
   if (combined.includes("mm/dd/yyyy") || combined.includes("mm/dd")) return "MM/DD/YYYY";
   if (combined.includes("dd-mm-yyyy")) return "DD-MM-YYYY";
   if (combined.includes("mm-dd-yyyy")) return "MM-DD-YYYY";
+  if (combined.includes("mm/yyyy") || combined.includes("mm-yyyy")) return "MM/YYYY";
+  if (combined.includes("mm/yy") || combined.includes("mm-yy")) return "MM/YY";
+  if (combined.includes("yyyy") && !combined.includes("mm") && !combined.includes("dd")) return "YYYY";
 
   // Default to MM/DD/YYYY for US-oriented sites
   return "MM/DD/YYYY";
@@ -105,7 +141,9 @@ function pad2(n: number): string {
 }
 
 export function formatDate(parsed: ParsedDate, format: DateFormat): string {
-  const { year, month, day } = parsed;
+  const { year, month } = parsed;
+  const day = parsed.day || 1;
+  const yy = (year % 100).toString().padStart(2, "0");
   switch (format) {
     case "YYYY-MM-DD": return `${year}-${pad2(month)}-${pad2(day)}`;
     case "MM/DD/YYYY": return `${pad2(month)}/${pad2(day)}/${year}`;
@@ -115,6 +153,9 @@ export function formatDate(parsed: ParsedDate, format: DateFormat): string {
     case "YYYY/MM/DD": return `${year}/${pad2(month)}/${pad2(day)}`;
     case "Month DD, YYYY": return `${MONTH_NAMES[month - 1]?.charAt(0).toUpperCase()}${MONTH_NAMES[month - 1]?.slice(1)} ${day}, ${year}`;
     case "DD Month YYYY": return `${day} ${MONTH_NAMES[month - 1]?.charAt(0).toUpperCase()}${MONTH_NAMES[month - 1]?.slice(1)} ${year}`;
+    case "MM/YYYY": return `${pad2(month)}/${year}`;
+    case "MM/YY": return `${pad2(month)}/${yy}`;
+    case "YYYY": return `${year}`;
     default: return `${pad2(month)}/${pad2(day)}/${year}`;
   }
 }
@@ -126,6 +167,9 @@ export function smartFormatDate(value: string, element: HTMLElement): string {
   // If the element is an HTML date input, always use ISO format
   if (element instanceof HTMLInputElement && element.type === "date") {
     return formatDate(parsed, "YYYY-MM-DD");
+  }
+  if (element instanceof HTMLInputElement && element.type === "month") {
+    return formatDate(parsed, "YYYY-MM-DD").slice(0, 7);
   }
 
   const fmt = detectDateFormat(element);
@@ -143,7 +187,7 @@ export function calculateAge(dobValue: string): number | null {
   const today = new Date();
   let age = today.getFullYear() - parsed.year;
   const monthDiff = today.getMonth() + 1 - parsed.month;
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < parsed.day)) {
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < (parsed.day || 1))) {
     age--;
   }
   return age >= 0 ? age : null;

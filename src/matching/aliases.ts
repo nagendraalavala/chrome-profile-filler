@@ -90,7 +90,8 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   ],
   "education.graduationYear": [
     "graduation_year", "grad_year", "year_graduated", "completion_year",
-    "graduation_date", "year_of_graduation",
+    "graduation_date", "year_of_graduation", "passing_year", "batch",
+    "qualification_with_passing_year",
   ],
 
   // Social
@@ -180,7 +181,7 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   ],
   "dateOfBirth": [
     "date_of_birth", "dob", "birthday", "birth_date", "birthdate",
-    "d_o_b", "born_on", "born_date",
+    "d_o_b", "born_on", "born_date", "bday",
   ],
   "age": [
     "age", "current_age", "your_age",
@@ -502,6 +503,33 @@ export const COMPOSITE_RULES: CompositeRule[] = [
     sourceKeys: ["prefix", "firstName", "lastName"],
     separator: " ",
   },
+];
+
+/**
+ * Section heading patterns that indicate fields belong to a "third-party"
+ * context (e.g. references, emergency contacts) and should NOT match
+ * the candidate's own profile fields like email, phone, name.
+ */
+export const THIRD_PARTY_SECTION_PATTERNS: string[] = [
+  "reference", "references", "professional reference",
+  "project reference", "amex project reference",
+];
+
+/**
+ * Profile keys that should NOT be used when the form field is
+ * under a third-party section (e.g. references).
+ */
+export const CANDIDATE_ONLY_KEYS: string[] = [
+  "firstName", "lastName", "email", "phone", "emailId", "contactNumber",
+  "social.linkedin", "social.github", "social.twitter",
+  "dateOfBirth", "ssn", "passportNumber", "visaStatus",
+  "currentLocation", "willingToRelocate", "availability",
+  "address.line1", "address.line2", "address.city", "address.state",
+  "address.zip", "address.country",
+  "education.school", "education.degree", "education.major",
+  "education.graduationYear",
+  "workExperience.company", "workExperience.title", "workExperience.years",
+  "skypeId", "interviewAvailability",
 ];
 
 /** Section heading keywords that boost scores for grouped fields. */

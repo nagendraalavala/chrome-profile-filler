@@ -233,16 +233,56 @@ export function findBestSelectMatch(
     }
   }
 
-  // Strategy 4: Partial/startsWith match — only for values with 3+ characters
-  // to avoid false positives with short abbreviations
-  if (val.length >= 3) {
-    const startsMatch = options.find(
-      (opt) =>
-        opt.text.trim().toLowerCase().startsWith(valLower) ||
-        opt.value.toLowerCase().startsWith(valLower),
+  // Strategy 4: Partial/includes match
+  const partial = options.find((opt) => {
+    const optText = opt.text.toLowerCase().trim();
+    const optVal = opt.value.toLowerCase();
+    return (
+      (optText && valLower.includes(optText) && optText.length >= 2) ||
+      (optText && optText.includes(valLower) && valLower.length >= 3) ||
+      (optVal && valLower.includes(optVal) && optVal.length >= 2) ||
+      (optVal && optVal.includes(valLower) && valLower.length >= 3)
     );
-    if (startsMatch) return startsMatch;
+  });
+  if (partial) return partial;
+
+  // Strategy 5: Yes/No boolean matching
+  const yesValues = new Set(["yes", "y", "true", "1", "open", "willing"]);
+  const noValues = new Set(["no", "n", "false", "0", "not"]);
+  const isYes = yesValues.has(valLower) || valLower.startsWith("yes");
+  const isNo = noValues.has(valLower) || valLower.startsWith("no");
+
+  if (isYes) {
+    const yesOpt = options.find((opt) => {
+      const t = opt.text.toLowerCase().trim();
+      return yesValues.has(t) || t.startsWith("yes");
+    });
+    if (yesOpt) return yesOpt;
   }
+  if (isNo) {
+    const noOpt = options.find((opt) => {
+      const t = opt.text.toLowerCase().trim();
+      return noValues.has(t) || t.startsWith("no");
+    });
+    if (noOpt) return noOpt;
+  }
+
+  // Strategy 6: Token overlap — pick the option with most shared words
+  const valueTokens = valLower.split(/\s+/);
+  let bestOverlap = 0;
+  let bestOpt: HTMLOptionElement | null = null;
+
+  for (const opt of options) {
+    if (!opt.value && !opt.text.trim()) continue;
+    const optTokens = opt.text.toLowerCase().trim().split(/\s+/);
+    const overlap = valueTokens.filter((t) => optTokens.includes(t)).length;
+    if (overlap > bestOverlap) {
+      bestOverlap = overlap;
+      bestOpt = opt;
+    }
+  }
+
+  if (bestOpt && bestOverlap > 0) return bestOpt;
 
   return null;
 }
