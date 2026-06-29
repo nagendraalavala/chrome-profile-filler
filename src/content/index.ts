@@ -141,6 +141,8 @@ function isSkippableLine(trimmed: string): boolean {
   if (!trimmed) return true;
   if (trimmed.length > 120) return true;
   if (trimmed.startsWith("http") || trimmed.startsWith("www.")) return true;
+  // Skip common signature/disclaimer lines
+  if (/^(best regards|thanks|thank you|sincerely|cheers|kind regards|regards|sent from)/i.test(trimmed)) return true;
   return false;
 }
 
@@ -650,6 +652,20 @@ function selectionIntersectsField(
     const row = field.element.closest("tr");
     if (row) return selection.containsNode(row, true);
   }
+  // For template fields inside a shared contenteditable, check if the
+  // selected text actually contains this field's label — not just the
+  // container element, which would match all fields.
+  if (field.isTemplateField && field.templateLabel) {
+    const selText = selection.toString();
+    if (selText) {
+      const labelClean = field.templateLabel
+        .replace(/[:*]+$/, "")
+        .replace(/\s*\([^)]*\)/g, "")
+        .trim();
+      return selText.toLowerCase().includes(labelClean.toLowerCase());
+    }
+    return false;
+  }
   return selection.containsNode(field.element, true);
 }
 
@@ -1093,7 +1109,10 @@ function fillTemplateField(
       } else if (format === "bare") {
         newHtml = html.replace(pattern, `$1 ${htmlValue}`);
       } else {
-        newHtml = html.replace(pattern, `$1${htmlValue}`);
+        // Ensure a space before the value if group 1 doesn't end with whitespace
+        const prefix = match[1] || "";
+        const needsSpace = prefix.length > 0 && !/[\s>]$/.test(prefix);
+        newHtml = html.replace(pattern, `$1${needsSpace ? " " : ""}${htmlValue}`);
       }
       element.innerHTML = newHtml;
 
