@@ -280,11 +280,69 @@ function scanTableFields(container: HTMLElement): FormFieldInfo[] {
   const tables = container.querySelectorAll("table");
 
   for (const table of Array.from(tables)) {
-    const rows = table.querySelectorAll("tr");
-    let keyValuePairs = 0;
+    const rows = Array.from(table.querySelectorAll("tr"));
+    if (rows.length < 2) continue;
 
-    // First pass: count how many rows look like key-value pairs
-    for (const row of Array.from(rows)) {
+    const firstRowCells = rows[0].querySelectorAll("td, th");
+    const colCount = firstRowCells.length;
+    if (colCount < 2) continue;
+
+    // Detect multi-column tables (3+ columns with a header row)
+    if (colCount >= 3) {
+      const headers: string[] = [];
+      let allHeadersValid = true;
+      for (let c = 0; c < colCount; c++) {
+        const hText = (firstRowCells[c].textContent || "").trim();
+        if (hText.length < 1 || hText.length > 80) { allHeadersValid = false; break; }
+        headers.push(hText);
+      }
+
+      if (allHeadersValid && headers.every((h) => /^[A-Za-z]/.test(h))) {
+        // Multi-column table: headers[0] is the row key column, rest are value columns
+        let dataRows = 0;
+        for (let r = 1; r < rows.length; r++) {
+          const cells = rows[r].querySelectorAll("td, th");
+          if (cells.length < 2) continue;
+          const keyText = (cells[0].textContent || "").trim();
+          if (keyText.length >= 1 && /^[A-Za-z]/.test(keyText)) dataRows++;
+        }
+
+        if (dataRows >= 1) {
+          const sectionHeading = findSectionHeading(table as HTMLElement);
+          for (let r = 1; r < rows.length; r++) {
+            const cells = rows[r].querySelectorAll("td, th");
+            if (cells.length < 2) continue;
+
+            const rowKey = (cells[0].textContent || "").trim().replace(/[:\s*]+$/, "").trim();
+            if (rowKey.length < 1 || !/^[A-Za-z]/.test(rowKey)) continue;
+
+            for (let c = 1; c < Math.min(cells.length, colCount); c++) {
+              const colHeader = headers[c];
+              const label = `${rowKey} - ${colHeader}`;
+              fields.push({
+                element: cells[c] as HTMLElement,
+                name: label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
+                id: "",
+                label,
+                type: "template-field",
+                placeholder: "",
+                sectionHeading,
+                autocomplete: "",
+                isContentEditable: true,
+                isTemplateField: true,
+                templateLabel: label,
+                templateFormat: "table",
+              });
+            }
+          }
+          continue;
+        }
+      }
+    }
+
+    // Standard 2-column key-value table
+    let keyValuePairs = 0;
+    for (const row of rows) {
       const cells = row.querySelectorAll("td, th");
       if (cells.length >= 2) {
         const keyText = (cells[0].textContent || "").trim();
@@ -294,11 +352,9 @@ function scanTableFields(container: HTMLElement): FormFieldInfo[] {
       }
     }
 
-    // Need at least 2 key-value rows to treat this as a template table
     if (keyValuePairs < 2) continue;
 
-    // Second pass: create field entries
-    for (const row of Array.from(rows)) {
+    for (const row of rows) {
       const cells = row.querySelectorAll("td, th");
       if (cells.length < 2) continue;
 
@@ -306,14 +362,10 @@ function scanTableFields(container: HTMLElement): FormFieldInfo[] {
       const valueCell = cells[cells.length - 1];
       const keyText = (keyCell.textContent || "").trim();
 
-      // Skip if key cell is empty, too short, or too long
       if (keyText.length < 2 || keyText.length > 80) continue;
       if (!/^[A-Za-z]/.test(keyText)) continue;
-
-      // Skip if the key cell and value cell are the same (single-cell row)
       if (keyCell === valueCell) continue;
 
-      // Clean the label: strip trailing colons/stars that might be in the cell
       const label = keyText.replace(/[:\s*]+$/, "").trim();
       if (label.length < 2) continue;
 
@@ -368,10 +420,17 @@ function scanContentEditableFields(): FormFieldInfo[] {
     if (tableFields.length > 0) {
       fields.push(...tableFields);
 
-      // Also scan for text-based template patterns outside the tables
+      // Also scan for text-based template patterns outside the tables,
+      // but skip labels already covered by table fields to avoid duplicates
+      const tableLabels = new Set(
+        tableFields.map((tf) => (tf.templateLabel || tf.label || "").toLowerCase().trim())
+      );
       const templateFields = scanTemplateFields(el);
-      if (templateFields.length > 0) {
-        fields.push(...templateFields);
+      for (const tf of templateFields) {
+        const cleanLabel = (tf.templateLabel || tf.label || "").toLowerCase().trim();
+        if (!tableLabels.has(cleanLabel)) {
+          fields.push(tf);
+        }
       }
       return;
     }
@@ -635,7 +694,20 @@ function scanFormFields(): FormFieldInfo[] {
   const fileFields = scanFileInputs();
   fields.push(...fileFields);
 
-  return fields;
+  // Deduplicate template fields sharing the same label+element
+  return deduplicateTemplateFields(fields);
+}
+
+function deduplicateTemplateFields(fields: FormFieldInfo[]): FormFieldInfo[] {
+  const seen = new Set<string>();
+  return fields.filter((f) => {
+    if (!f.isTemplateField || !f.templateLabel) return true;
+    // Use element reference identity + label as dedup key
+    const key = `${f.templateLabel}::${f.templateFormat}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /**
@@ -732,9 +804,20 @@ function scanSelectionFields(): FormFieldInfo[] {
     const templateFields = scanTemplateFields(editableAncestor);
     const existingElements = new WeakSet<Element>(fields.map((f) => f.element));
 
-    for (const f of [...tblFields, ...templateFields]) {
+    // Track table labels to skip overlapping template fields
+    const tblLabels = new Set<string>();
+    for (const f of tblFields) {
       if (!existingElements.has(f.element) && selectionIntersectsField(selection, f)) {
         fields.push(f);
+        tblLabels.add((f.templateLabel || f.label || "").toLowerCase().trim());
+      }
+    }
+    for (const f of templateFields) {
+      if (!existingElements.has(f.element) && selectionIntersectsField(selection, f)) {
+        const cleanLabel = (f.templateLabel || f.label || "").toLowerCase().trim();
+        if (!tblLabels.has(cleanLabel)) {
+          fields.push(f);
+        }
       }
     }
   } else {
@@ -750,15 +833,25 @@ function scanSelectionFields(): FormFieldInfo[] {
       const tblFields = scanTableFields(el);
       const templateFields = scanTemplateFields(el);
 
-      for (const f of [...tblFields, ...templateFields]) {
+      const tblLabels = new Set<string>();
+      for (const f of tblFields) {
         if (!existingElements.has(f.element) && selectionIntersectsField(selection, f)) {
           fields.push(f);
+          tblLabels.add((f.templateLabel || f.label || "").toLowerCase().trim());
+        }
+      }
+      for (const f of templateFields) {
+        if (!existingElements.has(f.element) && selectionIntersectsField(selection, f)) {
+          const cleanLabel = (f.templateLabel || f.label || "").toLowerCase().trim();
+          if (!tblLabels.has(cleanLabel)) {
+            fields.push(f);
+          }
         }
       }
     });
   }
 
-  return fields;
+  return deduplicateTemplateFields(fields);
 }
 
 function serializeFormFields(fields: FormFieldInfo[]): Array<Omit<FormFieldInfo, "element"> & { index: number }> {
@@ -1448,169 +1541,7 @@ function showFillToast(filledCount: number, profileName: string, totalFields?: n
   }, 5000);
 }
 
-// ---------------------------------------------------------------------------
-// Auto-detect floating badge
-// ---------------------------------------------------------------------------
-
-const BADGE_ID = "pf-auto-detect-badge";
-
-function createBadge(): HTMLDivElement {
-  let badge = document.getElementById(BADGE_ID) as HTMLDivElement | null;
-  if (badge) return badge;
-
-  badge = document.createElement("div");
-  badge.id = BADGE_ID;
-  badge.style.cssText = `
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    z-index: 2147483647;
-    display: none;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    background: linear-gradient(135deg, #4361ee, #3a0ca3);
-    color: white;
-    border-radius: 24px;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    box-shadow: 0 4px 16px rgba(67, 97, 238, 0.4);
-    transition: transform 0.2s, opacity 0.2s, box-shadow 0.2s;
-    user-select: none;
-    line-height: 1;
-  `;
-
-  const countSpan = document.createElement("span");
-  countSpan.id = "pf-badge-count";
-  countSpan.style.cssText = `
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    background: rgba(255,255,255,0.25);
-    border-radius: 50%;
-    font-size: 12px;
-    font-weight: 700;
-  `;
-
-  const textSpan = document.createElement("span");
-  textSpan.id = "pf-badge-text";
-  textSpan.textContent = chrome.i18n.getMessage("fieldsDetected") || "fields detected";
-
-  const closeBtn = document.createElement("span");
-  closeBtn.textContent = "\u00D7";
-  closeBtn.title = chrome.i18n.getMessage("dismiss") || "Dismiss";
-  closeBtn.style.cssText = `
-    margin-left: 4px;
-    font-size: 16px;
-    opacity: 0.7;
-    cursor: pointer;
-    line-height: 1;
-  `;
-  closeBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    badge!.style.display = "none";
-    badgeDismissed = true;
-  });
-
-  badge.appendChild(countSpan);
-  badge.appendChild(textSpan);
-  badge.appendChild(closeBtn);
-
-  badge.addEventListener("mouseenter", () => {
-    badge!.style.transform = "scale(1.05)";
-    badge!.style.boxShadow = "0 6px 20px rgba(67, 97, 238, 0.5)";
-  });
-  badge.addEventListener("mouseleave", () => {
-    badge!.style.transform = "scale(1)";
-    badge!.style.boxShadow = "0 4px 16px rgba(67, 97, 238, 0.4)";
-  });
-
-  // One-click fill button
-  const fillBtn = document.createElement("span");
-  fillBtn.id = "pf-badge-fill";
-  fillBtn.textContent = "Fill";
-  fillBtn.title = "One-click fill with active profile";
-  fillBtn.style.cssText = `
-    padding: 3px 10px;
-    background: rgba(255,255,255,0.3);
-    border-radius: 12px;
-    font-size: 12px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: background 0.2s;
-  `;
-  fillBtn.addEventListener("mouseenter", () => {
-    fillBtn.style.background = "rgba(255,255,255,0.5)";
-  });
-  fillBtn.addEventListener("mouseleave", () => {
-    fillBtn.style.background = "rgba(255,255,255,0.3)";
-  });
-  fillBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    chrome.runtime.sendMessage({ action: "ONE_CLICK_FILL" });
-    badge!.style.display = "none";
-  });
-  badge.appendChild(fillBtn);
-
-  badge.addEventListener("click", () => {
-    chrome.runtime.sendMessage({ action: "OPEN_POPUP_AND_SCAN" });
-  });
-
-  document.body.appendChild(badge);
-  return badge;
-}
-
-let badgeDismissed = false;
-let autoDetectTimer: ReturnType<typeof setTimeout> | null = null;
-
-function updateBadge(fieldCount: number): void {
-  if (badgeDismissed || fieldCount === 0) return;
-
-  const badge = createBadge();
-  const countEl = document.getElementById("pf-badge-count");
-  const textEl = document.getElementById("pf-badge-text");
-  if (countEl) countEl.textContent = String(fieldCount);
-  if (textEl) textEl.textContent = fieldCount === 1
-    ? (chrome.i18n.getMessage("fieldDetected") || "field detected")
-    : (chrome.i18n.getMessage("fieldsDetected") || "fields detected");
-  badge.style.display = "flex";
-}
-
-function autoDetectFields(): void {
-  if (badgeDismissed) return;
-
-  // Skip on extension pages and blank pages
-  const url = window.location.href;
-  if (url.startsWith("chrome") || url === "about:blank") return;
-
-  const fields = scanFormFields();
-  updateBadge(fields.length);
-}
-
-function scheduleAutoDetect(): void {
-  if (autoDetectTimer) clearTimeout(autoDetectTimer);
-  autoDetectTimer = setTimeout(autoDetectFields, 1500);
-}
-
-// Run auto-detect after page settles
-if (document.readyState === "complete") {
-  scheduleAutoDetect();
-} else {
-  window.addEventListener("load", scheduleAutoDetect);
-}
-
-// Re-scan when DOM changes significantly (e.g. SPA navigation, dynamic forms)
-const observer = new MutationObserver(() => {
-  if (!badgeDismissed) scheduleAutoDetect();
-});
-observer.observe(document.body, {
-  childList: true,
-  subtree: true,
-});
+// Badge and auto-detect removed per user request
 
 // ---------------------------------------------------------------------------
 // Template insertion

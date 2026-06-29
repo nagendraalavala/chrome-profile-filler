@@ -1,6 +1,7 @@
 import { Profile, FlattenedField } from "../models/profile";
 import { flattenFields } from "../utils/flatten";
 import { addFillHistory } from "../storage/historyStorage";
+import { ExpiryField } from "../models/autoFillRule";
 
 const PROFILES_KEY = "pf_profiles";
 const ACTIVE_PROFILE_KEY = "pf_active_profile";
@@ -107,7 +108,47 @@ async function rebuildContextMenus(): Promise<void> {
 chrome.runtime.onInstalled.addListener(async () => {
   console.log("Profile Filler extension installed");
   await rebuildContextMenus();
+  chrome.alarms.create("check-expiry", { periodInMinutes: 1440 });
+  checkExpiryNotifications();
 });
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "check-expiry") {
+    checkExpiryNotifications();
+  }
+});
+
+const EXPIRY_KEY = "pf_expiry_fields";
+
+async function checkExpiryNotifications(): Promise<void> {
+  const result = await chrome.storage.local.get(EXPIRY_KEY);
+  const fields: ExpiryField[] = (result[EXPIRY_KEY] as ExpiryField[]) || [];
+  if (fields.length === 0) return;
+
+  const now = Date.now();
+  const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+  const expiring = fields.filter((f) => {
+    const exp = new Date(f.expiryDate).getTime();
+    return exp > 0 && exp - now <= thirtyDays;
+  });
+
+  if (expiring.length === 0) return;
+
+  const lines = expiring.map((f) => {
+    const days = Math.ceil((new Date(f.expiryDate).getTime() - now) / (24 * 60 * 60 * 1000));
+    if (days < 0) return `${f.label}: EXPIRED ${Math.abs(days)}d ago`;
+    if (days === 0) return `${f.label}: Expires TODAY`;
+    return `${f.label}: ${days}d remaining`;
+  });
+
+  chrome.notifications.create("expiry-reminder", {
+    type: "basic",
+    iconUrl: chrome.runtime.getURL("icon128.png"),
+    title: `${expiring.length} Document${expiring.length > 1 ? "s" : ""} Expiring Soon`,
+    message: lines.slice(0, 4).join("\n"),
+    priority: 2,
+  });
+}
 
 // Rebuild context menus when storage changes (profiles added/renamed/deleted)
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -149,20 +190,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "OPEN_POPUP_AND_SCAN") {
     const popupUrl = chrome.runtime.getURL("popup.html?tab=true&autoScan=true");
     chrome.tabs.create({ url: popupUrl });
-    sendResponse({ success: true });
-  } else if (message.action === "ONE_CLICK_FILL") {
-    // One-click fill from the badge — uses the active profile
-    (async () => {
-      const tabId = sender.tab?.id;
-      if (!tabId) return;
-
-      const profiles = await getStoredProfiles();
-      if (profiles.length === 0) return;
-
-      const activeId = await getStoredActiveProfileId();
-      const profile = profiles.find((p) => p.profileId === activeId) || profiles[0];
-      await fillTabWithProfile(tabId, profile);
-    })();
     sendResponse({ success: true });
   } else if (message.action === "RECORD_FILL_HISTORY" && message.data) {
     const data = message.data as {

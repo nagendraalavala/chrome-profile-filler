@@ -1338,3 +1338,212 @@ body {
   display: flex;
   gap: 8px;
 }
+
+/* Auto-Fill Rules */
+.autofill-rules,
+.expiry-tracker {
+  padding: 8px;
+}
+
+.rules-header {
+  margin-bottom: 8px;
+}
+
+.rule-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding: 8px;
+  background: #f0f4ff;
+  border-radius: 6px;
+}
+
+.rule-input {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.rule-add-row {
+  display: flex;
+  gap: 6px;
+}
+
+.rule-category-input {
+  flex: 1;
+}
+
+.rule-add-btn {
+  padding: 4px 12px;
+  background: #4361ee;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rule-add-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.rules-empty {
+  text-align: center;
+  padding: 12px;
+  color: #888;
+  font-size: 12px;
+}
+
+.rules-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rules-category-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: #4361ee;
+  padding: 4px 0 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.rule-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  background: white;
+  border-radius: 4px;
+  border: 1px solid #eee;
+  font-size: 11px;
+}
+
+.rule-disabled {
+  opacity: 0.5;
+}
+
+.rule-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  flex: 1;
+}
+
+.rule-keyword-tag {
+  padding: 1px 6px;
+  background: #e8ecff;
+  color: #4361ee;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.rule-arrow {
+  color: #999;
+  font-size: 12px;
+}
+
+.rule-value {
+  font-weight: 500;
+  color: #333;
+  cursor: pointer;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rule-value-edit {
+  width: 100px;
+  font-size: 11px;
+}
+
+.rule-delete-btn {
+  background: none;
+  border: none;
+  color: #ccc;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.rule-delete-btn:hover {
+  color: #ef4444;
+}
+
+/* Expiry Tracker */
+.expiry-alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.expiry-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.expiry-expired {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+}
+
+.expiry-warning {
+  background: #fffbeb;
+  border: 1px solid #fed7aa;
+  color: #d97706;
+}
+
+.expiry-soon {
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  color: #0284c7;
+}
+
+.expiry-ok {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #16a34a;
+}
+
+.expiry-alert-label {
+  font-weight: 500;
+}
+
+.expiry-alert-badge {
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.expiry-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding: 8px;
+  background: #f0f4ff;
+  border-radius: 6px;
+}
+
+.expiry-badge-inline {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
