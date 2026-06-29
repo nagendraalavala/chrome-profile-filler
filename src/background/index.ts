@@ -150,20 +150,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const popupUrl = chrome.runtime.getURL("popup.html?tab=true&autoScan=true");
     chrome.tabs.create({ url: popupUrl });
     sendResponse({ success: true });
-  } else if (message.action === "ONE_CLICK_FILL") {
-    // One-click fill from the badge — uses the active profile
-    (async () => {
-      const tabId = sender.tab?.id;
-      if (!tabId) return;
-
-      const profiles = await getStoredProfiles();
-      if (profiles.length === 0) return;
-
-      const activeId = await getStoredActiveProfileId();
-      const profile = profiles.find((p) => p.profileId === activeId) || profiles[0];
-      await fillTabWithProfile(tabId, profile);
-    })();
-    sendResponse({ success: true });
   } else if (message.action === "RECORD_FILL_HISTORY" && message.data) {
     const data = message.data as {
       domain: string;
