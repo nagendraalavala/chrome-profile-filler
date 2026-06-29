@@ -2,6 +2,7 @@ import { FlattenedField, MatchResult, FormFieldInfo, SiteMapping } from "../mode
 import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS, SYNONYM_GROUPS, TOKEN_ABBREVIATIONS, COMPOSITE_RULES, CompositeRule, detectFormType, getFormTypeBoost, FormType } from "./aliases";
 import { getI18nAliases } from "./i18nAliases";
 import { calculateAge } from "../utils/smartValues";
+import { AutoFillRule } from "../models/autoFillRule";
 
 function normalize(str: string): string {
   return str
@@ -504,11 +505,37 @@ function trySplitMatch(
   return null;
 }
 
+function tryAutoFillRuleMatch(
+  formField: FormFieldInfo,
+  rules: AutoFillRule[],
+): AutoFillRule | null {
+  if (rules.length === 0) return null;
+
+  const fieldText = [
+    formField.label,
+    formField.name,
+    formField.placeholder,
+    formField.templateLabel || "",
+  ].join(" ").toLowerCase();
+
+  for (const rule of rules) {
+    if (!rule.enabled || !rule.value) continue;
+    const matched = rule.keywords.some((kw) => {
+      const kwLower = kw.toLowerCase().trim();
+      if (!kwLower) return false;
+      return fieldText.includes(kwLower);
+    });
+    if (matched) return rule;
+  }
+  return null;
+}
+
 export function matchFields(
   formFields: FormFieldInfo[],
   profileFields: FlattenedField[],
   siteMappings: SiteMapping[],
-  domain: string
+  domain: string,
+  autoFillRules: AutoFillRule[] = [],
 ): MatchResult[] {
   const results: MatchResult[] = [];
 
@@ -643,6 +670,22 @@ export function matchFields(
         group: getGroupPrefix(bestMatch.dotKey) || undefined,
         isAttachment: bestMatch.isAttachment,
         attachment: bestMatch.attachment,
+      });
+      continue;
+    }
+
+    // 9. Try custom auto-fill rules (keyword matching)
+    const ruleMatch = tryAutoFillRuleMatch(formField, autoFillRules);
+    if (ruleMatch) {
+      results.push({
+        formFieldName: formField.name || formField.id,
+        formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
+        formFieldElement: signature,
+        profileKey: `rule:${ruleMatch.id}`,
+        value: ruleMatch.value,
+        confidence: 0.85,
+        selected: true,
+        group: "autoFillRules",
       });
       continue;
     }

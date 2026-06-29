@@ -15,6 +15,7 @@ import {
 import { updateLastActivity } from "../../storage/pinStorage";
 import { t } from "../../i18n";
 import { isSyncEnabled, setSyncEnabled, pullFromSync, onSyncChanged } from "../../storage/syncStorage";
+import { getRules } from "../../storage/rulesStorage";
 import FieldEditor from "./FieldEditor";
 import PreviewTable from "./PreviewTable";
 import ImportExport from "./ImportExport";
@@ -22,10 +23,12 @@ import ShareManager from "./ShareManager";
 import TemplateManager from "./TemplateManager";
 import FillHistory from "./FillHistory";
 import ClipboardCopy from "./ClipboardCopy";
+import AutoFillRules from "./AutoFillRules";
+import ExpiryTracker from "./ExpiryTracker";
 import LockScreen from "./LockScreen";
 import "../styles/popup.css";
 
-type TabId = "edit" | "preview" | "import" | "templates" | "share" | "history" | "clipboard";
+type TabId = "edit" | "preview" | "import" | "templates" | "share" | "history" | "clipboard" | "rules" | "expiry";
 
 /**
  * Ensure the content script is injected into the given tab.
@@ -303,11 +306,13 @@ export default function App() {
         ? flattenFields(activeProfile.fields)
         : [];
 
+      const autoFillRules = await getRules();
       const matchResults = matchFields(
         formFieldInfos,
         currentFlatFields,
         siteMappings,
-        domain
+        domain,
+        autoFillRules,
       );
 
       setMatches(matchResults);
@@ -674,6 +679,18 @@ export default function App() {
           Copy
         </button>
         <button
+          className={`tab-btn ${activeTab === "rules" ? "active" : ""}`}
+          onClick={() => setActiveTab("rules")}
+        >
+          Rules
+        </button>
+        <button
+          className={`tab-btn ${activeTab === "expiry" ? "active" : ""}`}
+          onClick={() => setActiveTab("expiry")}
+        >
+          Expiry
+        </button>
+        <button
           className={`tab-btn ${activeTab === "history" ? "active" : ""}`}
           onClick={() => setActiveTab("history")}
         >
@@ -684,6 +701,7 @@ export default function App() {
       <div className="tab-content">
         {activeTab === "edit" && activeProfile && (
           <div className="fields-editor">
+            <ProfileCompleteness fields={activeProfile.fields} />
             <FieldEditor
               fields={activeProfile.fields}
               onChange={handleFieldsChange}
@@ -749,6 +767,17 @@ export default function App() {
         {activeTab === "clipboard" && activeProfile && (
           <ClipboardCopy profile={activeProfile} />
         )}
+
+        {activeTab === "rules" && (
+          <AutoFillRules />
+        )}
+
+        {activeTab === "expiry" && (
+          <ExpiryTracker
+            profiles={profiles}
+            activeProfileId={activeProfileId}
+          />
+        )}
       </div>
 
       {activeTab === "preview" && matches.length > 0 && (
@@ -773,6 +802,44 @@ export default function App() {
 
       {statusMsg && (
         <div className={`status-bar ${statusType}`}>{statusMsg}</div>
+      )}
+    </div>
+  );
+}
+
+const COMMON_FIELDS = [
+  "firstName", "lastName", "email", "phone", "address", "city", "state", "zip",
+  "country", "dob", "ssn", "linkedin", "visaStatus", "passport",
+];
+
+function ProfileCompleteness({ fields }: { fields: ProfileField[] }) {
+  const flat = flattenFields(fields);
+  const filled = flat.filter((f) => f.value && f.value.trim()).length;
+  const total = flat.length;
+  const pct = total > 0 ? Math.round((filled / total) * 100) : 0;
+
+  const missing = COMMON_FIELDS.filter((key) =>
+    !flat.some((f) => {
+      const fKey = f.dotKey.toLowerCase().replace(/[^a-z]/g, "");
+      return fKey.includes(key.toLowerCase());
+    })
+  );
+
+  const barColor = pct >= 80 ? "#22c55e" : pct >= 50 ? "#f59e0b" : "#ef4444";
+
+  return (
+    <div className="completeness-bar" style={{ padding: "6px 8px", borderBottom: "1px solid #eee" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ flex: 1, height: 6, background: "#e5e7eb", borderRadius: 3, overflow: "hidden" }}>
+          <div style={{ width: `${pct}%`, height: "100%", background: barColor, borderRadius: 3, transition: "width 0.3s" }} />
+        </div>
+        <span style={{ fontSize: 11, fontWeight: 600, color: barColor, minWidth: 36 }}>{pct}%</span>
+        <span style={{ fontSize: 10, color: "#999" }}>{filled}/{total} fields</span>
+      </div>
+      {missing.length > 0 && (
+        <div style={{ fontSize: 10, color: "#999", marginTop: 3 }}>
+          Missing: {missing.slice(0, 5).join(", ")}{missing.length > 5 ? ` +${missing.length - 5} more` : ""}
+        </div>
       )}
     </div>
   );
