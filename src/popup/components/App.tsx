@@ -442,6 +442,55 @@ export default function App() {
     }
   };
 
+  const handleAddFieldsToProfile = async () => {
+    if (!activeProfile) {
+      showStatus("No active profile", "error");
+      return;
+    }
+
+    // Collect unmatched or unmapped fields from scan results
+    const unmatchedLabels = matches
+      .filter((m) => !m.profileKey || m.confidence === 0)
+      .map((m) => m.formFieldLabel)
+      .filter((label) => label && label.length >= 1);
+
+    if (unmatchedLabels.length === 0) {
+      showStatus("All fields are already matched", "success");
+      return;
+    }
+
+    // Prompt for group name
+    const groupName = prompt(
+      `Add ${unmatchedLabels.length} unmatched field(s) to profile.\nEnter group name:`,
+      "Scanned Fields"
+    );
+    if (!groupName || !groupName.trim()) return;
+
+    const groupKey = groupName.trim().replace(/\s+/g, "_").replace(/^./, (c) => c.toLowerCase());
+
+    // Create children fields from unmatched labels
+    const children: ProfileField[] = unmatchedLabels.map((label) => ({
+      id: generateId(),
+      key: label.replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, "_").replace(/^./, (c) => c.toLowerCase()),
+      label,
+      value: "",
+      type: "FIELD" as const,
+    }));
+
+    const newGroup: ProfileField = {
+      id: generateId(),
+      key: groupKey,
+      label: groupName.trim(),
+      type: "GROUP",
+      children,
+      collapsed: false,
+    };
+
+    await handleFieldsChange([...activeProfile.fields, newGroup]);
+    setActiveTab("edit");
+    showStatus(`Added ${children.length} fields to "${groupName.trim()}" group`, "success");
+  };
+
   const handleImport = async (imported: Profile) => {
     // Check if profile with same ID already exists
     const existing = profiles.find((p) => p.profileId === imported.profileId);
@@ -714,6 +763,11 @@ export default function App() {
           <button className="save-mapping-btn" onClick={handleSaveMappings}>
             Save Mappings
           </button>
+          {matches.some((m) => !m.profileKey || m.confidence === 0) && (
+            <button className="save-mapping-btn" onClick={handleAddFieldsToProfile}>
+              + Add to Profile
+            </button>
+          )}
         </div>
       )}
 

@@ -280,11 +280,69 @@ function scanTableFields(container: HTMLElement): FormFieldInfo[] {
   const tables = container.querySelectorAll("table");
 
   for (const table of Array.from(tables)) {
-    const rows = table.querySelectorAll("tr");
-    let keyValuePairs = 0;
+    const rows = Array.from(table.querySelectorAll("tr"));
+    if (rows.length < 2) continue;
 
-    // First pass: count how many rows look like key-value pairs
-    for (const row of Array.from(rows)) {
+    const firstRowCells = rows[0].querySelectorAll("td, th");
+    const colCount = firstRowCells.length;
+    if (colCount < 2) continue;
+
+    // Detect multi-column tables (3+ columns with a header row)
+    if (colCount >= 3) {
+      const headers: string[] = [];
+      let allHeadersValid = true;
+      for (let c = 0; c < colCount; c++) {
+        const hText = (firstRowCells[c].textContent || "").trim();
+        if (hText.length < 1 || hText.length > 80) { allHeadersValid = false; break; }
+        headers.push(hText);
+      }
+
+      if (allHeadersValid && headers.every((h) => /^[A-Za-z]/.test(h))) {
+        // Multi-column table: headers[0] is the row key column, rest are value columns
+        let dataRows = 0;
+        for (let r = 1; r < rows.length; r++) {
+          const cells = rows[r].querySelectorAll("td, th");
+          if (cells.length < 2) continue;
+          const keyText = (cells[0].textContent || "").trim();
+          if (keyText.length >= 1 && /^[A-Za-z]/.test(keyText)) dataRows++;
+        }
+
+        if (dataRows >= 1) {
+          const sectionHeading = findSectionHeading(table as HTMLElement);
+          for (let r = 1; r < rows.length; r++) {
+            const cells = rows[r].querySelectorAll("td, th");
+            if (cells.length < 2) continue;
+
+            const rowKey = (cells[0].textContent || "").trim().replace(/[:\s*]+$/, "").trim();
+            if (rowKey.length < 1 || !/^[A-Za-z]/.test(rowKey)) continue;
+
+            for (let c = 1; c < Math.min(cells.length, colCount); c++) {
+              const colHeader = headers[c];
+              const label = `${rowKey} - ${colHeader}`;
+              fields.push({
+                element: cells[c] as HTMLElement,
+                name: label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
+                id: "",
+                label,
+                type: "template-field",
+                placeholder: "",
+                sectionHeading,
+                autocomplete: "",
+                isContentEditable: true,
+                isTemplateField: true,
+                templateLabel: label,
+                templateFormat: "table",
+              });
+            }
+          }
+          continue;
+        }
+      }
+    }
+
+    // Standard 2-column key-value table
+    let keyValuePairs = 0;
+    for (const row of rows) {
       const cells = row.querySelectorAll("td, th");
       if (cells.length >= 2) {
         const keyText = (cells[0].textContent || "").trim();
@@ -294,11 +352,9 @@ function scanTableFields(container: HTMLElement): FormFieldInfo[] {
       }
     }
 
-    // Need at least 2 key-value rows to treat this as a template table
     if (keyValuePairs < 2) continue;
 
-    // Second pass: create field entries
-    for (const row of Array.from(rows)) {
+    for (const row of rows) {
       const cells = row.querySelectorAll("td, th");
       if (cells.length < 2) continue;
 
@@ -306,14 +362,10 @@ function scanTableFields(container: HTMLElement): FormFieldInfo[] {
       const valueCell = cells[cells.length - 1];
       const keyText = (keyCell.textContent || "").trim();
 
-      // Skip if key cell is empty, too short, or too long
       if (keyText.length < 2 || keyText.length > 80) continue;
       if (!/^[A-Za-z]/.test(keyText)) continue;
-
-      // Skip if the key cell and value cell are the same (single-cell row)
       if (keyCell === valueCell) continue;
 
-      // Clean the label: strip trailing colons/stars that might be in the cell
       const label = keyText.replace(/[:\s*]+$/, "").trim();
       if (label.length < 2) continue;
 
