@@ -20,10 +20,12 @@ import PreviewTable from "./PreviewTable";
 import ImportExport from "./ImportExport";
 import ShareManager from "./ShareManager";
 import TemplateManager from "./TemplateManager";
+import FillHistory from "./FillHistory";
+import ClipboardCopy from "./ClipboardCopy";
 import LockScreen from "./LockScreen";
 import "../styles/popup.css";
 
-type TabId = "edit" | "preview" | "import" | "templates" | "share";
+type TabId = "edit" | "preview" | "import" | "templates" | "share" | "history" | "clipboard";
 
 /**
  * Ensure the content script is injected into the given tab.
@@ -616,6 +618,18 @@ export default function App() {
         >
           Share
         </button>
+        <button
+          className={`tab-btn ${activeTab === "clipboard" ? "active" : ""}`}
+          onClick={() => setActiveTab("clipboard")}
+        >
+          Copy
+        </button>
+        <button
+          className={`tab-btn ${activeTab === "history" ? "active" : ""}`}
+          onClick={() => setActiveTab("history")}
+        >
+          History
+        </button>
       </div>
 
       <div className="tab-content">
@@ -677,6 +691,14 @@ export default function App() {
             onImportProfile={handleImportSharedProfile}
             onStatus={showStatus}
           />
+        )}
+
+        {activeTab === "history" && (
+          <FillHistory />
+        )}
+
+        {activeTab === "clipboard" && activeProfile && (
+          <ClipboardCopy profile={activeProfile} />
         )}
       </div>
 

@@ -1,6 +1,7 @@
 import { FlattenedField, MatchResult, FormFieldInfo, SiteMapping } from "../models/profile";
 import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS, SYNONYM_GROUPS, TOKEN_ABBREVIATIONS, COMPOSITE_RULES, CompositeRule, detectFormType, getFormTypeBoost, FormType } from "./aliases";
 import { getI18nAliases } from "./i18nAliases";
+import { calculateAge } from "../utils/smartValues";
 
 function normalize(str: string): string {
   return str
@@ -550,13 +551,77 @@ export function matchFields(
       }
     }
 
-    // 2-8. Score all profile fields and pick the best
+    // 2. Try composite matching FIRST (combine multiple profile fields)
+    // This ensures "Full Name" is recognized as firstName+lastName before
+    // token overlap with unrelated fields (e.g. "passport" in parenthetical)
+    if (!isFileField) {
+      const composite = tryCompositeMatch(formField, regularFields);
+      if (composite) {
+        const hasValue = !!(composite.value && composite.value.trim());
+        results.push({
+          formFieldName: formField.name || formField.id,
+          formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
+          formFieldElement: signature,
+          profileKey: composite.rule.sourceKeys.join(" + "),
+          value: composite.value,
+          confidence: composite.confidence,
+          selected: hasValue,
+          group: undefined,
+        });
+        continue;
+      }
+
+      // 2b. DOB → age auto-calculation
+      const ageAliases = ["age", "current_age", "your_age", "years_old"];
+      const fieldNorm = normalize(formField.name || formField.label || formField.id || "");
+      const isAgeField = ageAliases.some((a) => fieldNorm.includes(a));
+      if (isAgeField) {
+        const dobField = regularFields.find((f) => {
+          const key = normalize(f.dotKey);
+          return key.includes("dob") || key.includes("dateofbirth") || key.includes("birthday") || key.includes("birthdate") || key.includes("date_of_birth");
+        });
+        if (dobField && dobField.value) {
+          const age = calculateAge(dobField.value);
+          if (age !== null) {
+            results.push({
+              formFieldName: formField.name || formField.id,
+              formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
+              formFieldElement: signature,
+              profileKey: dobField.dotKey + " → age",
+              value: String(age),
+              confidence: 0.9,
+              selected: true,
+              group: undefined,
+            });
+            continue;
+          }
+        }
+      }
+
+      // 2c. Try split matching (split a composite profile value)
+      const split = trySplitMatch(formField, regularFields);
+      if (split) {
+        const hasValue = !!(split.value && split.value.trim());
+        results.push({
+          formFieldName: formField.name || formField.id,
+          formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
+          formFieldElement: signature,
+          profileKey: split.sourceKey + " (split)",
+          value: split.value,
+          confidence: split.confidence,
+          selected: hasValue,
+          group: undefined,
+        });
+        continue;
+      }
+    }
+
+    // 3-8. Score all profile fields and pick the best direct match
     let bestMatch: FlattenedField | null = null;
     let bestScore = 0;
 
     for (const profileField of candidatePool) {
       let score = scoreCandidate(formField, profileField.dotKey);
-      // Apply form type context boost
       score *= getFormTypeBoost(formType, profileField.dotKey);
       if (score > bestScore) {
         bestScore = score;
@@ -580,42 +645,6 @@ export function matchFields(
         attachment: bestMatch.attachment,
       });
       continue;
-    }
-
-    // 9. Try composite matching (combine multiple profile fields)
-    if (!isFileField) {
-      const composite = tryCompositeMatch(formField, regularFields);
-      if (composite) {
-        const hasValue = !!(composite.value && composite.value.trim());
-        results.push({
-          formFieldName: formField.name || formField.id,
-          formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
-          formFieldElement: signature,
-          profileKey: composite.rule.sourceKeys.join(" + "),
-          value: composite.value,
-          confidence: composite.confidence,
-          selected: hasValue,
-          group: undefined,
-        });
-        continue;
-      }
-
-      // 10. Try split matching (split a composite profile value)
-      const split = trySplitMatch(formField, regularFields);
-      if (split) {
-        const hasValue = !!(split.value && split.value.trim());
-        results.push({
-          formFieldName: formField.name || formField.id,
-          formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
-          formFieldElement: signature,
-          profileKey: split.sourceKey + " (split)",
-          value: split.value,
-          confidence: split.confidence,
-          selected: hasValue,
-          group: undefined,
-        });
-        continue;
-      }
     }
 
     // No match found

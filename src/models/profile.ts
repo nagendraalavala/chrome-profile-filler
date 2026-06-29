@@ -81,9 +81,13 @@ export type MessageAction =
   | "CONTEXT_MENU_FILL"
   | "CONTEXT_FILL_RESULT"
   | "OPEN_POPUP_AND_SCAN"
+  | "ONE_CLICK_FILL"
   | "DOWNLOAD_ATTACHMENT"
   | "INSERT_TEMPLATE"
-  | "INSERT_TEMPLATE_RESULT";
+  | "INSERT_TEMPLATE_RESULT"
+  | "UNDO_FILL"
+  | "UNDO_RESULT"
+  | "RECORD_FILL_HISTORY";
 
 export interface ExtensionMessage {
   action: MessageAction;

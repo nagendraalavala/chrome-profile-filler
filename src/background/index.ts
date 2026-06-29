@@ -1,5 +1,6 @@
 import { Profile, FlattenedField } from "../models/profile";
 import { flattenFields } from "../utils/flatten";
+import { addFillHistory } from "../storage/historyStorage";
 
 const PROFILES_KEY = "pf_profiles";
 const ACTIVE_PROFILE_KEY = "pf_active_profile";
@@ -144,10 +145,43 @@ chrome.action.onClicked.addListener((_tab) => {
 // Message handlers from content script
 // ---------------------------------------------------------------------------
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "OPEN_POPUP_AND_SCAN") {
     const popupUrl = chrome.runtime.getURL("popup.html?tab=true&autoScan=true");
     chrome.tabs.create({ url: popupUrl });
+    sendResponse({ success: true });
+  } else if (message.action === "ONE_CLICK_FILL") {
+    // One-click fill from the badge — uses the active profile
+    (async () => {
+      const tabId = sender.tab?.id;
+      if (!tabId) return;
+
+      const profiles = await getStoredProfiles();
+      if (profiles.length === 0) return;
+
+      const activeId = await getStoredActiveProfileId();
+      const profile = profiles.find((p) => p.profileId === activeId) || profiles[0];
+      await fillTabWithProfile(tabId, profile);
+    })();
+    sendResponse({ success: true });
+  } else if (message.action === "RECORD_FILL_HISTORY" && message.data) {
+    const data = message.data as {
+      domain: string;
+      url: string;
+      profileName: string;
+      filledCount: number;
+      totalFields: number;
+      fieldsSummary: string[];
+    };
+    addFillHistory({
+      timestamp: Date.now(),
+      domain: data.domain,
+      url: data.url,
+      profileName: data.profileName,
+      filledCount: data.filledCount,
+      totalFields: data.totalFields,
+      fieldsSummary: data.fieldsSummary,
+    });
     sendResponse({ success: true });
   } else if (message.action === "DOWNLOAD_ATTACHMENT" && message.data) {
     const { dataUrl, fileName } = message.data as { dataUrl: string; fileName: string };
