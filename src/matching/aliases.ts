@@ -178,6 +178,16 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   "emailId": [
     "email_id", "email", "email_address", "e_mail",
   ],
+  "dateOfBirth": [
+    "date_of_birth", "dob", "birthday", "birth_date", "birthdate",
+    "d_o_b", "born_on", "born_date",
+  ],
+  "age": [
+    "age", "current_age", "your_age",
+  ],
+  "gender": [
+    "gender", "sex", "male_female", "m_f",
+  ],
 
   // Documents / Attachments
   "documents.resume": [
@@ -485,6 +495,12 @@ export const COMPOSITE_RULES: CompositeRule[] = [
     concepts: ["full_phone", "phone_with_code", "international_phone"],
     sourceKeys: ["phoneCountryCode", "phone"],
     separator: "",
+  },
+  // full_name with suffix (e.g. "Dr. John Doe Jr.")
+  {
+    concepts: ["full_name_with_title", "name_with_prefix"],
+    sourceKeys: ["prefix", "firstName", "lastName"],
+    separator: " ",
   },
 ];
 

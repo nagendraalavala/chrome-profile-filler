@@ -42,5 +42,9 @@
   "pinMismatch": { "message": "PINs do not match" },
   "pinTooShort": { "message": "PIN must be 4-8 digits" },
   "dismiss": { "message": "Dismiss" },
-  "language": { "message": "Language" }
+  "language": { "message": "Language" },
+  "fillHistory": { "message": "Fill History" },
+  "clipboard": { "message": "Quick Copy" },
+  "clearAll": { "message": "Clear All" },
+  "copyAll": { "message": "Copy All" }
 }

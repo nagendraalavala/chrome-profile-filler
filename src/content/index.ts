@@ -1,6 +1,7 @@
 import { FormFieldInfo, FlattenedField, ExtensionMessage } from "../models/profile";
 import { matchFields } from "../matching/engine";
 import { findBestSelectMatch } from "../matching/valueNormalizer";
+import { smartFormatDate, smartFormatPhone, matchRadioValue, matchCheckboxValue, validateProfileValue } from "../utils/smartValues";
 
 function findLabel(element: HTMLElement): string {
   const id = element.getAttribute("id");
@@ -528,6 +529,59 @@ function scanFileInputs(): FormFieldInfo[] {
   return fields;
 }
 
+function scanRadioGroups(): FormFieldInfo[] {
+  const fields: FormFieldInfo[] = [];
+  const seenNames = new Set<string>();
+  const radios = document.querySelectorAll<HTMLInputElement>("input[type='radio']");
+
+  radios.forEach((radio) => {
+    const name = radio.getAttribute("name") || "";
+    if (!name || seenNames.has(name)) return;
+    if (!isVisible(radio)) return;
+    seenNames.add(name);
+
+    fields.push({
+      element: radio,
+      name,
+      id: radio.getAttribute("id") || "",
+      label: findLabel(radio) || findSectionHeading(radio),
+      type: "radio",
+      placeholder: "",
+      sectionHeading: findSectionHeading(radio),
+      autocomplete: "",
+      isContentEditable: false,
+    });
+  });
+
+  return fields;
+}
+
+function scanCheckboxes(): FormFieldInfo[] {
+  const fields: FormFieldInfo[] = [];
+  const checkboxes = document.querySelectorAll<HTMLInputElement>("input[type='checkbox']");
+
+  checkboxes.forEach((cb) => {
+    if (!isVisible(cb)) return;
+    const name = cb.getAttribute("name") || "";
+    const label = findLabel(cb);
+    if (!name && !label) return;
+
+    fields.push({
+      element: cb,
+      name,
+      id: cb.getAttribute("id") || "",
+      label,
+      type: "checkbox",
+      placeholder: "",
+      sectionHeading: findSectionHeading(cb),
+      autocomplete: "",
+      isContentEditable: false,
+    });
+  });
+
+  return fields;
+}
+
 function scanFormFields(): FormFieldInfo[] {
   const selector = "input, textarea, select";
   const elements = document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(selector);
@@ -550,6 +604,10 @@ function scanFormFields(): FormFieldInfo[] {
       isContentEditable: false,
     });
   });
+
+  // Scan radio button groups and checkboxes
+  fields.push(...scanRadioGroups());
+  fields.push(...scanCheckboxes());
 
   // Scan contenteditable elements (email composers, rich text editors, docs)
   const editableFields = scanContentEditableFields();
@@ -1140,24 +1198,150 @@ function fillTableCell(element: HTMLElement, value: string): void {
   element.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
+// ---------------------------------------------------------------------------
+// Undo fill state
+// ---------------------------------------------------------------------------
+
+interface UndoEntry {
+  element: HTMLElement;
+  previousValue: string;
+  previousChecked?: boolean;
+  previousInnerHTML?: string;
+}
+
+let undoStack: UndoEntry[] = [];
+
+function saveUndoState(element: HTMLElement): void {
+  if (element instanceof HTMLInputElement) {
+    undoStack.push({
+      element,
+      previousValue: element.value,
+      previousChecked: element.checked,
+    });
+  } else if (element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+    undoStack.push({ element, previousValue: (element as HTMLTextAreaElement | HTMLSelectElement).value });
+  } else if (isEditableElement(element)) {
+    undoStack.push({ element, previousValue: "", previousInnerHTML: element.innerHTML });
+  }
+}
+
+function undoLastFill(): number {
+  let restored = 0;
+  for (const entry of undoStack) {
+    if (entry.element instanceof HTMLInputElement) {
+      if (entry.previousChecked !== undefined) {
+        entry.element.checked = entry.previousChecked;
+      }
+      entry.element.value = entry.previousValue;
+    } else if (entry.element instanceof HTMLTextAreaElement || entry.element instanceof HTMLSelectElement) {
+      (entry.element as HTMLTextAreaElement | HTMLSelectElement).value = entry.previousValue;
+    } else if (entry.previousInnerHTML !== undefined) {
+      entry.element.innerHTML = entry.previousInnerHTML;
+    }
+    entry.element.dispatchEvent(new Event("input", { bubbles: true }));
+    entry.element.dispatchEvent(new Event("change", { bubbles: true }));
+    restored++;
+  }
+  undoStack = [];
+  return restored;
+}
+
+// ---------------------------------------------------------------------------
+// Radio button and checkbox filling
+// ---------------------------------------------------------------------------
+
+function fillRadioGroup(radioElement: HTMLInputElement, value: string): boolean {
+  const name = radioElement.getAttribute("name");
+  if (!name) return false;
+
+  const radios = document.querySelectorAll<HTMLInputElement>(`input[type='radio'][name='${CSS.escape(name)}']`);
+  for (const radio of radios) {
+    const optValue = radio.value || "";
+    const optLabel = findLabel(radio);
+    if (matchRadioValue(optValue, optLabel, value)) {
+      saveUndoState(radio);
+      radio.checked = true;
+      radio.dispatchEvent(new Event("change", { bubbles: true }));
+      radio.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    }
+  }
+  return false;
+}
+
+function fillCheckbox(cbElement: HTMLInputElement, value: string): boolean {
+  const label = findLabel(cbElement);
+  if (matchCheckboxValue(label, value)) {
+    saveUndoState(cbElement);
+    cbElement.checked = true;
+    cbElement.dispatchEvent(new Event("change", { bubbles: true }));
+    cbElement.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Smart value formatting before fill
+// ---------------------------------------------------------------------------
+
+function isDateField(element: HTMLElement, fieldName: string): boolean {
+  if (element instanceof HTMLInputElement && element.type === "date") return true;
+  const lower = fieldName.toLowerCase();
+  return lower.includes("date") || lower.includes("dob") || lower.includes("birthday") || lower.includes("birth");
+}
+
+function isPhoneField(fieldName: string): boolean {
+  const lower = fieldName.toLowerCase();
+  return lower.includes("phone") || lower.includes("cell") || lower.includes("mobile") || lower.includes("tel") || lower.includes("fax");
+}
+
+function smartFormatValue(value: string, element: HTMLElement, fieldName: string): string {
+  if (isDateField(element, fieldName)) {
+    return smartFormatDate(value, element);
+  }
+  if (isPhoneField(fieldName)) {
+    return smartFormatPhone(value, element);
+  }
+  return value;
+}
+
 function fillField(
   element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLElement,
   value: string,
-  isContentEditable?: boolean
+  isContentEditable?: boolean,
+  fieldName?: string
 ): void {
+  saveUndoState(element as HTMLElement);
+
+  // Radio buttons
+  if (element instanceof HTMLInputElement && element.type === "radio") {
+    fillRadioGroup(element, value);
+    return;
+  }
+
+  // Checkboxes
+  if (element instanceof HTMLInputElement && element.type === "checkbox") {
+    fillCheckbox(element, value);
+    return;
+  }
+
   if (isContentEditable || isEditableElement(element)) {
     fillContentEditable(element, value);
     return;
   }
 
+  // Apply smart formatting
+  const formatted = smartFormatValue(value, element as HTMLElement, fieldName || "");
+
   if (element instanceof HTMLSelectElement) {
     const options = Array.from(element.options);
-    const match = findBestSelectMatch(options, value);
+    const match = findBestSelectMatch(options, formatted);
     if (match) {
       element.value = match.value;
     }
   } else if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-    element.value = value;
+    element.value = formatted;
   }
 
   element.dispatchEvent(new Event("input", { bubbles: true }));
@@ -1169,7 +1353,7 @@ function fillField(
 // Toast notification
 // ---------------------------------------------------------------------------
 
-function showFillToast(filledCount: number, profileName: string): void {
+function showFillToast(filledCount: number, profileName: string, totalFields?: number, warnings?: string[]): void {
   const existing = document.getElementById("pf-fill-toast");
   if (existing) existing.remove();
 
@@ -1180,26 +1364,69 @@ function showFillToast(filledCount: number, profileName: string): void {
     bottom: 20px;
     right: 20px;
     z-index: 2147483647;
-    padding: 12px 20px;
+    padding: 12px 16px;
     background: ${filledCount > 0 ? "#10b981" : "#ef4444"};
     color: white;
     border-radius: 12px;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
     box-shadow: 0 4px 16px rgba(0,0,0,0.2);
     transition: opacity 0.3s;
     opacity: 1;
+    max-width: 360px;
+    line-height: 1.4;
   `;
-  toast.textContent = filledCount > 0
-    ? `Filled ${filledCount} field${filledCount !== 1 ? "s" : ""} with "${profileName}"`
-    : `No matching fields found for "${profileName}"`;
+
+  // Main message
+  const mainLine = document.createElement("div");
+  if (filledCount > 0 && totalFields) {
+    mainLine.textContent = `Filled ${filledCount}/${totalFields} fields with "${profileName}"`;
+  } else if (filledCount > 0) {
+    mainLine.textContent = `Filled ${filledCount} field${filledCount !== 1 ? "s" : ""} with "${profileName}"`;
+  } else {
+    mainLine.textContent = `No matching fields found for "${profileName}"`;
+  }
+  toast.appendChild(mainLine);
+
+  // Warnings
+  if (warnings && warnings.length > 0) {
+    const warnLine = document.createElement("div");
+    warnLine.style.cssText = "margin-top: 4px; font-size: 11px; opacity: 0.85;";
+    warnLine.textContent = warnings.slice(0, 3).join(" | ");
+    toast.appendChild(warnLine);
+  }
+
+  // Undo button
+  if (filledCount > 0 && undoStack.length > 0) {
+    const undoBtn = document.createElement("button");
+    undoBtn.textContent = "Undo";
+    undoBtn.style.cssText = `
+      margin-left: 12px;
+      padding: 2px 10px;
+      background: rgba(255,255,255,0.25);
+      color: white;
+      border: 1px solid rgba(255,255,255,0.4);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      vertical-align: middle;
+    `;
+    undoBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const restored = undoLastFill();
+      toast.remove();
+      showFillToast(0, `Undo: restored ${restored} fields`);
+    });
+    mainLine.appendChild(undoBtn);
+  }
 
   document.body.appendChild(toast);
   setTimeout(() => {
     toast.style.opacity = "0";
     setTimeout(() => toast.remove(), 300);
-  }, 3000);
+  }, 5000);
 }
 
 // ---------------------------------------------------------------------------
@@ -1282,6 +1509,33 @@ function createBadge(): HTMLDivElement {
     badge!.style.transform = "scale(1)";
     badge!.style.boxShadow = "0 4px 16px rgba(67, 97, 238, 0.4)";
   });
+
+  // One-click fill button
+  const fillBtn = document.createElement("span");
+  fillBtn.id = "pf-badge-fill";
+  fillBtn.textContent = "Fill";
+  fillBtn.title = "One-click fill with active profile";
+  fillBtn.style.cssText = `
+    padding: 3px 10px;
+    background: rgba(255,255,255,0.3);
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s;
+  `;
+  fillBtn.addEventListener("mouseenter", () => {
+    fillBtn.style.background = "rgba(255,255,255,0.5)";
+  });
+  fillBtn.addEventListener("mouseleave", () => {
+    fillBtn.style.background = "rgba(255,255,255,0.3)";
+  });
+  fillBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    chrome.runtime.sendMessage({ action: "ONE_CLICK_FILL" });
+    badge!.style.display = "none";
+  });
+  badge.appendChild(fillBtn);
 
   badge.addEventListener("click", () => {
     chrome.runtime.sendMessage({ action: "OPEN_POPUP_AND_SCAN" });
@@ -1420,7 +1674,11 @@ chrome.runtime.onMessage.addListener(
         isAttachment?: boolean;
         dataUrl?: string;
         fileName?: string;
+        profileKey?: string;
       }>;
+
+      // Clear undo stack for fresh fill
+      undoStack = [];
       let filledCount = 0;
 
       for (const item of fillData) {
@@ -1430,26 +1688,20 @@ chrome.runtime.onMessage.addListener(
             let attached = false;
 
             if (field.element instanceof HTMLInputElement && field.element.type === "file") {
-              // Standard file input — set .files directly
               attached = fillFileInput(field.element, item.dataUrl, item.fileName);
             }
 
             if (!attached) {
-              // Try the multi-strategy email compose attachment approach
-              // (hidden file input → click attach button → drag-and-drop)
               attached = attachToEmailCompose(field.element, item.dataUrl, item.fileName);
             }
 
             if (!attached) {
-              // Download fallback: download the file and also try to open
-              // Gmail's file picker so the user can quickly select it
               try {
                 chrome.runtime.sendMessage({
                   action: "DOWNLOAD_ATTACHMENT",
                   data: { dataUrl: item.dataUrl, fileName: item.fileName },
                 });
 
-                // Try to click the attach button so file picker opens
                 const dialog = field.element.closest("[role='dialog']") ||
                                field.element.closest(".compose") ||
                                document.querySelector("[role='dialog']");
@@ -1464,7 +1716,6 @@ chrome.runtime.onMessage.addListener(
 
                 attached = true;
               } catch {
-                // Last resort: drag-and-drop
                 const composeArea = field.element.closest("[contenteditable='true']") ||
                                     document.querySelector("[role='textbox'][contenteditable='true']") ||
                                     field.element;
@@ -1483,7 +1734,8 @@ chrome.runtime.onMessage.addListener(
               filledCount++;
             }
           } else {
-            fillField(field.element, item.value, field.isContentEditable);
+            const fieldName = item.profileKey || field.name || field.label || "";
+            fillField(field.element, item.value, field.isContentEditable, fieldName);
             filledCount++;
           }
         }
@@ -1496,11 +1748,24 @@ chrome.runtime.onMessage.addListener(
         profileName: string;
       };
 
+      // Clear undo stack for fresh fill
+      undoStack = [];
+
       const fields = scanFormFields();
       const domain = window.location.hostname;
       const matches = matchFields(fields, flatFields, [], domain);
 
+      // Collect validation warnings
+      const warnings: string[] = [];
+      for (const m of matches) {
+        if (m.selected && m.value) {
+          const warn = validateProfileValue(m.profileKey, m.value);
+          if (warn) warnings.push(warn.message);
+        }
+      }
+
       let filledCount = 0;
+      const filledFields: string[] = [];
       for (let i = 0; i < matches.length; i++) {
         const m = matches[i];
         if (!m.selected || !m.value) continue;
@@ -1515,22 +1780,43 @@ chrome.runtime.onMessage.addListener(
           if (!attached) {
             attached = attachToEmailCompose(field.element, m.attachment.dataUrl, m.attachment.fileName);
           }
-          if (attached) filledCount++;
+          if (attached) { filledCount++; filledFields.push(m.profileKey); }
         } else if (field.isTemplateField && field.templateFormat === "table") {
           fillTableCell(field.element, m.value);
           filledCount++;
+          filledFields.push(m.profileKey);
         } else if (field.isTemplateField && field.templateLabel) {
           if (fillTemplateField(field.element, field.templateLabel, m.value, field.templateFormat || "colon")) {
             filledCount++;
+            filledFields.push(m.profileKey);
           }
         } else {
-          fillField(field.element, m.value, field.isContentEditable);
+          fillField(field.element, m.value, field.isContentEditable, m.profileKey);
           filledCount++;
+          filledFields.push(m.profileKey);
         }
       }
 
-      showFillToast(filledCount, profileName);
+      showFillToast(filledCount, profileName, fields.length, warnings);
+
+      // Record fill history
+      chrome.runtime.sendMessage({
+        action: "RECORD_FILL_HISTORY",
+        data: {
+          domain,
+          url: window.location.href,
+          profileName,
+          filledCount,
+          totalFields: fields.length,
+          fieldsSummary: filledFields.slice(0, 10),
+        },
+      });
+
       sendResponse({ action: "CONTEXT_FILL_RESULT", data: { filledCount } });
+    } else if (message.action === "UNDO_FILL") {
+      const restored = undoLastFill();
+      showFillToast(0, `Undo: restored ${restored} fields`);
+      sendResponse({ action: "UNDO_RESULT", data: { restored } });
     } else if (message.action === "INSERT_TEMPLATE") {
       const { text } = message.data as { text: string };
       const inserted = insertTemplateText(text);

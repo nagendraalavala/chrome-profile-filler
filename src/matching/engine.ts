@@ -1,6 +1,7 @@
 import { FlattenedField, MatchResult, FormFieldInfo, SiteMapping } from "../models/profile";
 import { FIELD_ALIASES, SECTION_BOOST_KEYWORDS, SYNONYM_GROUPS, TOKEN_ABBREVIATIONS, COMPOSITE_RULES, CompositeRule, detectFormType, getFormTypeBoost, FormType } from "./aliases";
 import { getI18nAliases } from "./i18nAliases";
+import { calculateAge } from "../utils/smartValues";
 
 function normalize(str: string): string {
   return str
@@ -598,6 +599,34 @@ export function matchFields(
           group: undefined,
         });
         continue;
+      }
+
+      // 9b. DOB → age auto-calculation
+      const ageAliases = ["age", "current_age", "your_age", "years_old"];
+      const fieldNorm = normalize(formField.name || formField.label || formField.id || "");
+      const isAgeField = ageAliases.some((a) => fieldNorm.includes(a));
+      if (isAgeField) {
+        // Find DOB in profile fields
+        const dobField = regularFields.find((f) => {
+          const key = normalize(f.dotKey);
+          return key.includes("dob") || key.includes("dateofbirth") || key.includes("birthday") || key.includes("birthdate") || key.includes("date_of_birth");
+        });
+        if (dobField && dobField.value) {
+          const age = calculateAge(dobField.value);
+          if (age !== null) {
+            results.push({
+              formFieldName: formField.name || formField.id,
+              formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
+              formFieldElement: signature,
+              profileKey: dobField.dotKey + " → age",
+              value: String(age),
+              confidence: 0.9,
+              selected: true,
+              group: undefined,
+            });
+            continue;
+          }
+        }
       }
 
       // 10. Try split matching (split a composite profile value)
