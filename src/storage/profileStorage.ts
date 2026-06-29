@@ -185,20 +185,6 @@ export function createDefaultProfile(): Profile {
           { id: generateId(), key: "github", label: "GitHub", type: "FIELD", value: "" },
         ],
       },
-      {
-        id: generateId(),
-        key: "documents",
-        label: "Documents",
-        type: "GROUP",
-        collapsed: false,
-        children: [
-          { id: generateId(), key: "resume", label: "Resume / CV", type: "ATTACHMENT", value: "" },
-          { id: generateId(), key: "coverLetter", label: "Cover Letter", type: "ATTACHMENT", value: "" },
-          { id: generateId(), key: "driversLicense", label: "Driver's License", type: "ATTACHMENT", value: "" },
-          { id: generateId(), key: "passport", label: "Passport", type: "ATTACHMENT", value: "" },
-          { id: generateId(), key: "photo", label: "Photo", type: "ATTACHMENT", value: "" },
-        ],
-      },
     ],
   };
 }

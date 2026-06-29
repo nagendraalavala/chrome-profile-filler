@@ -210,22 +210,5 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       fieldsSummary: data.fieldsSummary,
     });
     sendResponse({ success: true });
-  } else if (message.action === "DOWNLOAD_ATTACHMENT" && message.data) {
-    const { dataUrl, fileName } = message.data as { dataUrl: string; fileName: string };
-    chrome.downloads.download(
-      { url: dataUrl, filename: fileName, saveAs: false },
-      (downloadId) => {
-        if (downloadId) {
-          chrome.notifications?.create?.({
-            type: "basic",
-            iconUrl: "icon128.png",
-            title: "Attachment Downloaded",
-            message: `"${fileName}" saved to Downloads. Please attach it using the paperclip button in your email.`,
-          });
-        }
-        sendResponse({ success: !!downloadId });
-      }
-    );
-    return true; // async response
   }
 });
