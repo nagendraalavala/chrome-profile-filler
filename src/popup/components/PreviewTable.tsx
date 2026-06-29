@@ -66,7 +66,12 @@ export default function PreviewTable({
                 onChange={() => onToggle(index)}
               />
             </td>
-            <td title={match.formFieldName}>{match.formFieldLabel}</td>
+            <td title={match.formFieldName}>
+              {match.sectionHeading && (
+                <span className="section-tag">{match.sectionHeading}</span>
+              )}
+              {match.formFieldLabel}
+            </td>
             <td>
               <select
                 className="preview-select"

@@ -368,6 +368,31 @@ export default function FieldEditor({
     onChange(newFields);
   };
 
+  const insertFieldAfter = (afterIndex: number) => {
+    const newField: ProfileField = {
+      id: generateId(),
+      key: "newField",
+      label: "New Field",
+      type: "FIELD",
+      value: "",
+    };
+    const newFields = [...fields];
+    newFields.splice(afterIndex + 1, 0, newField);
+    onChange(newFields);
+  };
+
+  const renderInsertBtn = (afterIndex: number) => (
+    <div className="insert-field-row" key={`insert-${afterIndex}`}>
+      <button
+        className="insert-field-btn"
+        onClick={() => insertFieldAfter(afterIndex)}
+        title="Insert field here"
+      >
+        +
+      </button>
+    </div>
+  );
+
   return (
     <div>
       {fields.map((field, index) => {
@@ -431,6 +456,8 @@ export default function FieldEditor({
           );
         })();
 
+        const showInsert = depth === 0 && field.type !== "GROUP";
+
         if (showInlineAddBtns) {
           return (
             <React.Fragment key={`${field.id}-with-btns`}>
@@ -443,6 +470,15 @@ export default function FieldEditor({
                 </button>
               </div>
               {node}
+            </React.Fragment>
+          );
+        }
+
+        if (showInsert) {
+          return (
+            <React.Fragment key={`${field.id}-with-insert`}>
+              {node}
+              {renderInsertBtn(index)}
             </React.Fragment>
           );
         }

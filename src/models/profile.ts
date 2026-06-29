@@ -49,6 +49,7 @@ export interface MatchResult {
   group?: string;
   isAttachment?: boolean;
   attachment?: DocumentInfo;
+  sectionHeading?: string;
 }
 
 export interface FormFieldInfo {

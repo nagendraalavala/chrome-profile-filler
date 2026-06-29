@@ -275,6 +275,32 @@ function scanTemplateFields(element: HTMLElement): FormFieldInfo[] {
 // (e.g. email templates with tabular layout: left cell = label, right cell = value)
 // ---------------------------------------------------------------------------
 
+function isSectionHeaderRow(row: Element): string | null {
+  const cells = row.querySelectorAll("td, th");
+  if (cells.length === 0) return null;
+
+  const firstCell = cells[0] as HTMLElement;
+  const firstText = (firstCell.textContent || "").trim();
+  if (!firstText) return null;
+
+  const colspan = parseInt(firstCell.getAttribute("colspan") || "1", 10);
+  const isSingleCell = cells.length === 1;
+  const isSpanning = colspan >= 2;
+
+  if (!isSingleCell && !isSpanning) return null;
+
+  const cleaned = firstText.replace(/[:\s*]+$/, "").trim();
+  if (
+    cleaned.length >= 3 &&
+    cleaned.length <= 60 &&
+    /^[A-Za-z]/.test(cleaned) &&
+    !/^\d+\)/.test(cleaned)
+  ) {
+    return cleaned;
+  }
+  return null;
+}
+
 function scanTableFields(container: HTMLElement): FormFieldInfo[] {
   const fields: FormFieldInfo[] = [];
   const tables = container.querySelectorAll("table");
@@ -354,7 +380,17 @@ function scanTableFields(container: HTMLElement): FormFieldInfo[] {
 
     if (keyValuePairs < 2) continue;
 
+    const tableHeading = findSectionHeading(table as HTMLElement);
+    let currentSection = tableHeading;
+
     for (const row of rows) {
+      // Check if this row is a section header
+      const sectionHeader = isSectionHeaderRow(row);
+      if (sectionHeader) {
+        currentSection = sectionHeader;
+        continue;
+      }
+
       const cells = row.querySelectorAll("td, th");
       if (cells.length < 2) continue;
 
@@ -366,7 +402,8 @@ function scanTableFields(container: HTMLElement): FormFieldInfo[] {
       if (!/^[A-Za-z]/.test(keyText)) continue;
       if (keyCell === valueCell) continue;
 
-      const label = keyText.replace(/[:\s*]+$/, "").trim();
+      let label = keyText.replace(/[:\s*]+$/, "").trim();
+      label = label.replace(/^\d+\)\s*/, "").trim();
       if (label.length < 2) continue;
 
       fields.push({
@@ -376,7 +413,7 @@ function scanTableFields(container: HTMLElement): FormFieldInfo[] {
         label,
         type: "template-field",
         placeholder: "",
-        sectionHeading: findSectionHeading(table as HTMLElement),
+        sectionHeading: currentSection,
         autocomplete: "",
         isContentEditable: true,
         isTemplateField: true,
@@ -562,34 +599,6 @@ function scanIframeFields(): FormFieldInfo[] {
 // Main scan: combines standard inputs + contenteditable + iframes
 // ---------------------------------------------------------------------------
 
-function scanFileInputs(): FormFieldInfo[] {
-  const fields: FormFieldInfo[] = [];
-  // Find all file inputs including hidden ones (Gmail uses hidden file inputs for attachments)
-  const fileInputs = document.querySelectorAll<HTMLInputElement>("input[type='file']");
-
-  fileInputs.forEach((el) => {
-    // For Gmail/Outlook, include hidden file inputs near compose areas
-    const isGmailFileInput = el.closest("[role='dialog']") || el.closest(".compose") ||
-                             el.closest("[data-action='composenew']") || el.closest(".dC");
-    if (!isVisible(el) && !isGmailFileInput) return;
-
-    fields.push({
-      element: el,
-      name: el.getAttribute("name") || "attachment",
-      id: el.getAttribute("id") || "",
-      label: findLabel(el) || "Attachment",
-      type: "file",
-      placeholder: "",
-      sectionHeading: findSectionHeading(el),
-      autocomplete: "",
-      isFileInput: true,
-      acceptTypes: el.getAttribute("accept") || "",
-    });
-  });
-
-  return fields;
-}
-
 function scanRadioGroups(): FormFieldInfo[] {
   const fields: FormFieldInfo[] = [];
   const seenNames = new Set<string>();
@@ -691,8 +700,7 @@ function scanFormFields(): FormFieldInfo[] {
   fields.push(...iframeFields);
 
   // Scan file input fields for attachment support
-  const fileFields = scanFileInputs();
-  fields.push(...fileFields);
+  // File input scanning removed — Gmail blocks programmatic file uploads
 
   // Deduplicate template fields sharing the same label+element
   return deduplicateTemplateFields(fields);
@@ -865,8 +873,7 @@ function serializeFormFields(fields: FormFieldInfo[]): Array<Omit<FormFieldInfo,
     sectionHeading: f.sectionHeading,
     autocomplete: f.autocomplete,
     isContentEditable: f.isContentEditable,
-    isFileInput: f.isFileInput,
-    acceptTypes: f.acceptTypes,
+
     isTemplateField: f.isTemplateField,
     templateLabel: f.templateLabel,
     templateFormat: f.templateFormat,
@@ -876,158 +883,6 @@ function serializeFormFields(fields: FormFieldInfo[]): Array<Omit<FormFieldInfo,
 // ---------------------------------------------------------------------------
 // Fill logic: standard inputs, selects, contenteditable, iframes, files
 // ---------------------------------------------------------------------------
-
-function dataUrlToFile(dataUrl: string, fileName: string): File {
-  const [header, base64Data] = dataUrl.split(",");
-  const mimeMatch = header.match(/:(.*?);/);
-  const mimeType = mimeMatch ? mimeMatch[1] : "application/octet-stream";
-  const byteString = atob(base64Data);
-  const ab = new ArrayBuffer(byteString.length);
-  const ia = new Uint8Array(ab);
-  for (let i = 0; i < byteString.length; i++) {
-    ia[i] = byteString.charCodeAt(i);
-  }
-  return new File([ab], fileName, { type: mimeType });
-}
-
-function fillFileInput(
-  element: HTMLInputElement,
-  dataUrl: string,
-  fileName: string
-): boolean {
-  try {
-    const file = dataUrlToFile(dataUrl, fileName);
-    const dt = new DataTransfer();
-    dt.items.add(file);
-    element.files = dt.files;
-    element.dispatchEvent(new Event("change", { bubbles: true }));
-    element.dispatchEvent(new Event("input", { bubbles: true }));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Drop a file onto an element using drag-and-drop events.
- * This works for Gmail/Outlook compose areas where hidden file inputs
- * may not accept direct .files assignment.
- */
-function dropFileOnElement(
-  element: HTMLElement,
-  dataUrl: string,
-  fileName: string
-): boolean {
-  try {
-    const file = dataUrlToFile(dataUrl, fileName);
-    const dt = new DataTransfer();
-    dt.items.add(file);
-
-    const dragEnterEvent = new DragEvent("dragenter", {
-      bubbles: true,
-      cancelable: true,
-      dataTransfer: dt,
-    });
-    element.dispatchEvent(dragEnterEvent);
-
-    const dragOverEvent = new DragEvent("dragover", {
-      bubbles: true,
-      cancelable: true,
-      dataTransfer: dt,
-    });
-    element.dispatchEvent(dragOverEvent);
-
-    const dropEvent = new DragEvent("drop", {
-      bubbles: true,
-      cancelable: true,
-      dataTransfer: dt,
-    });
-    element.dispatchEvent(dropEvent);
-
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Try to attach a file to Gmail/Outlook by finding the compose dialog's
- * hidden file input, setting files via DataTransfer, and triggering change.
- * Falls back to: click the attach button → download file → user selects it.
- */
-function attachToEmailCompose(
-  contextElement: HTMLElement,
-  dataUrl: string,
-  fileName: string
-): boolean {
-  // Find the compose dialog container
-  const composeDialog = contextElement.closest("[role='dialog']") ||
-                        contextElement.closest(".compose") ||
-                        contextElement.closest(".nH") ||
-                        document.querySelector("[role='dialog']");
-
-  if (!composeDialog) return false;
-
-  // Strategy 1: Find Gmail's hidden file input and set files directly
-  const fileInputSelectors = [
-    "input[type='file'][name='Filedata']",
-    "input[type='file']",
-  ];
-  for (const sel of fileInputSelectors) {
-    const inputs = composeDialog.querySelectorAll<HTMLInputElement>(sel);
-    for (const input of inputs) {
-      if (fillFileInput(input, dataUrl, fileName)) {
-        return true;
-      }
-    }
-  }
-
-  // Strategy 2: Click the attach button to create/reveal the file input,
-  // set up an observer to catch it, then set files on it
-  const attachBtnSelectors = [
-    "[aria-label*='Attach']",
-    "[data-tooltip*='Attach']",
-    ".wG .e5",
-    "[command='Files']",
-    ".a1.aaA.aMZ",
-  ];
-
-  for (const sel of attachBtnSelectors) {
-    const btn = composeDialog.querySelector<HTMLElement>(sel);
-    if (btn) {
-      // Set up a MutationObserver to catch file input creation
-      let fileInputFound = false;
-      const observer = new MutationObserver((mutations) => {
-        for (const m of mutations) {
-          for (const node of m.addedNodes) {
-            if (node instanceof HTMLInputElement && node.type === "file") {
-              fileInputFound = fillFileInput(node, dataUrl, fileName);
-              observer.disconnect();
-            }
-          }
-        }
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-
-      btn.click();
-
-      // Give Gmail a moment then disconnect
-      setTimeout(() => observer.disconnect(), 500);
-      if (fileInputFound) return true;
-      break;
-    }
-  }
-
-  // Strategy 3: Drag-and-drop onto the compose body
-  const dropTarget = composeDialog.querySelector("[contenteditable='true']") ||
-                     composeDialog.querySelector("[role='textbox']") ||
-                     contextElement;
-  if (dropFileOnElement(dropTarget as HTMLElement, dataUrl, fileName)) {
-    return true;
-  }
-
-  return false;
-}
 
 function fillContentEditable(element: HTMLElement, value: string): void {
   element.focus();
@@ -1158,6 +1013,40 @@ function findSeparatorEnd(line: string, format: TemplateFormat): number {
 }
 
 /**
+ * When a profile value is a multi-line block containing key-value pairs
+ * (e.g. "1)Name: ABC\nContact No: 45678\nEmail ID: abc@gmail.com"),
+ * extract just the value for a specific field label.
+ */
+function extractSubValue(value: string, fieldLabel: string): string {
+  if (!value.includes("\n")) return value;
+
+  const lines = value.split("\n").map((l) => l.trim()).filter(Boolean);
+  const kvLines = lines.filter((l) => /^(?:\d+\)\s*)?[A-Za-z][A-Za-z\s]*[:|-]\s*.+/.test(l));
+  if (kvLines.length < 2) return value;
+
+  const normLabel = fieldLabel.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const m = line.match(/^(?:\d+\)\s*)?([^:|-]+?)\s*[:|-]\s*(.*)$/);
+    if (!m) continue;
+
+    const lineKey = m[1].trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (lineKey === normLabel) {
+      const parts = [m[2].trim()];
+      for (let j = i + 1; j < lines.length; j++) {
+        if (/^(?:\d+\)\s*)?[A-Za-z][A-Za-z\s]*[:|-]\s*/.test(lines[j])) break;
+        parts.push(lines[j]);
+      }
+      const extracted = parts.join("\n").trim();
+      if (extracted) return extracted;
+    }
+  }
+
+  return value;
+}
+
+/**
  * Convert a multi-line value to HTML with <br> tags, escaping special chars.
  */
 function valueToHtml(value: string): string {
@@ -1220,7 +1109,13 @@ function fillTemplateField(
     }
   }
 
-  // Fallback: line-by-line text replacement
+  // Fallback: line-by-line text replacement.
+  // GUARD: Never use the text/innerHTML fallback on elements containing tables —
+  // setting innerText or innerHTML destroys the table HTML structure.
+  if (element.querySelector("table")) {
+    return false;
+  }
+
   const text = element.innerText || element.textContent || "";
   const lines = text.split("\n");
   const labelLower = templateLabel.toLowerCase();
@@ -1621,9 +1516,6 @@ chrome.runtime.onMessage.addListener(
       const fillData = message.data as Array<{
         index: number;
         value: string;
-        isAttachment?: boolean;
-        dataUrl?: string;
-        fileName?: string;
         profileKey?: string;
       }>;
 
@@ -1634,53 +1526,15 @@ chrome.runtime.onMessage.addListener(
       for (const item of fillData) {
         if (item.index >= 0 && item.index < lastScannedFields.length) {
           const field = lastScannedFields[item.index];
-          if (item.isAttachment && item.dataUrl && item.fileName) {
-            let attached = false;
-
-            if (field.element instanceof HTMLInputElement && field.element.type === "file") {
-              attached = fillFileInput(field.element, item.dataUrl, item.fileName);
-            }
-
-            if (!attached) {
-              attached = attachToEmailCompose(field.element, item.dataUrl, item.fileName);
-            }
-
-            if (!attached) {
-              try {
-                chrome.runtime.sendMessage({
-                  action: "DOWNLOAD_ATTACHMENT",
-                  data: { dataUrl: item.dataUrl, fileName: item.fileName },
-                });
-
-                const dialog = field.element.closest("[role='dialog']") ||
-                               field.element.closest(".compose") ||
-                               document.querySelector("[role='dialog']");
-                if (dialog) {
-                  const attachBtn = dialog.querySelector<HTMLElement>(
-                    "[aria-label*='Attach'], [data-tooltip*='Attach'], [command='Files']"
-                  );
-                  if (attachBtn) {
-                    setTimeout(() => attachBtn.click(), 300);
-                  }
-                }
-
-                attached = true;
-              } catch {
-                const composeArea = field.element.closest("[contenteditable='true']") ||
-                                    document.querySelector("[role='textbox'][contenteditable='true']") ||
-                                    field.element;
-                attached = dropFileOnElement(composeArea as HTMLElement, item.dataUrl, item.fileName);
-              }
-            }
-
-            if (attached) {
-              filledCount++;
-            }
-          } else if (field.isTemplateField && field.templateFormat === "table") {
-            fillTableCell(field.element, item.value);
+          if (field.isTemplateField && field.templateFormat === "table") {
+            const cellValue = field.templateLabel
+              ? extractSubValue(item.value, field.templateLabel)
+              : item.value;
+            fillTableCell(field.element, cellValue);
             filledCount++;
           } else if (field.isTemplateField && field.templateLabel) {
-            if (fillTemplateField(field.element, field.templateLabel, item.value, field.templateFormat || "colon")) {
+            const fieldValue = extractSubValue(item.value, field.templateLabel);
+            if (fillTemplateField(field.element, field.templateLabel, fieldValue, field.templateFormat || "colon")) {
               filledCount++;
             }
           } else {
@@ -1722,16 +1576,7 @@ chrome.runtime.onMessage.addListener(
         if (i >= fields.length) continue;
         const field = fields[i];
 
-        if (m.isAttachment && m.attachment?.dataUrl && m.attachment?.fileName) {
-          let attached = false;
-          if (field.element instanceof HTMLInputElement && field.element.type === "file") {
-            attached = fillFileInput(field.element, m.attachment.dataUrl, m.attachment.fileName);
-          }
-          if (!attached) {
-            attached = attachToEmailCompose(field.element, m.attachment.dataUrl, m.attachment.fileName);
-          }
-          if (attached) { filledCount++; filledFields.push(m.profileKey); }
-        } else if (field.isTemplateField && field.templateFormat === "table") {
+        if (field.isTemplateField && field.templateFormat === "table") {
           fillTableCell(field.element, m.value);
           filledCount++;
           filledFields.push(m.profileKey);
