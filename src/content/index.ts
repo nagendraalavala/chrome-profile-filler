@@ -138,9 +138,8 @@ function isValidLabel(label: string): boolean {
 
 function isSkippableLine(trimmed: string): boolean {
   if (!trimmed) return true;
-  if (trimmed.length > 80) return true;
+  if (trimmed.length > 120) return true;
   if (trimmed.startsWith("http") || trimmed.startsWith("www.")) return true;
-  if (trimmed.includes("@") && !trimmed.endsWith(":")) return true;
   return false;
 }
 
@@ -224,39 +223,48 @@ function extractTemplateLabels(element: HTMLElement): DetectedLabel[] {
     }
 
     // --- 10. Bare key candidate: short capitalized line with no value ---
-    // Only treated as labels if enough such lines appear together.
-    if (/^[A-Za-z][A-Za-z0-9 /().#]{1,40}$/.test(trimmed) && !trimmed.includes("  ")) {
+    if (/^[A-Za-z][A-Za-z0-9 \-/().#]{1,40}$/.test(trimmed) && !trimmed.includes("  ")) {
       bareCandidates.push({ label: trimmed, format: "bare" });
     }
   }
 
-  // Include bare candidates if we found at least 2 AND no other formats
-  // were detected (to avoid false positives on normal paragraph text).
-  if (results.length === 0 && bareCandidates.length >= 2) {
+  // Include bare candidates when: (a) no other formats detected and 2+ bare lines,
+  // or (b) other formats exist but 2+ bare lines also present (mixed-format template)
+  if (bareCandidates.length >= 2) {
+    results.push(...bareCandidates);
+  } else if (bareCandidates.length === 1 && results.length >= 2) {
+    // Single bare label in a mostly-formatted template (e.g. "E-mail" among colon lines)
     results.push(...bareCandidates);
   }
 
   return results;
 }
 
+function stripParens(str: string): string {
+  return str.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function scanTemplateFields(element: HTMLElement): FormFieldInfo[] {
   const detected = extractTemplateLabels(element);
   if (detected.length < 2) return [];
 
-  return detected.map((d) => ({
-    element,
-    name: d.label.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
-    id: "",
-    label: d.label,
-    type: "template-field",
-    placeholder: "",
-    sectionHeading: "",
-    autocomplete: "",
-    isContentEditable: true,
-    isTemplateField: true,
-    templateLabel: d.label,
-    templateFormat: d.format,
-  }));
+  return detected.map((d) => {
+    const cleanLabel = stripParens(d.label);
+    return {
+      element,
+      name: cleanLabel.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase(),
+      id: "",
+      label: cleanLabel,
+      type: "template-field",
+      placeholder: d.label,
+      sectionHeading: "",
+      autocomplete: "",
+      isContentEditable: true,
+      isTemplateField: true,
+      templateLabel: d.label,
+      templateFormat: d.format,
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1508,6 +1516,13 @@ chrome.runtime.onMessage.addListener(
             attached = attachToEmailCompose(field.element, m.attachment.dataUrl, m.attachment.fileName);
           }
           if (attached) filledCount++;
+        } else if (field.isTemplateField && field.templateFormat === "table") {
+          fillTableCell(field.element, m.value);
+          filledCount++;
+        } else if (field.isTemplateField && field.templateLabel) {
+          if (fillTemplateField(field.element, field.templateLabel, m.value, field.templateFormat || "colon")) {
+            filledCount++;
+          }
         } else {
           fillField(field.element, m.value, field.isContentEditable);
           filledCount++;
