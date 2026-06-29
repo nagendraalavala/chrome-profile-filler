@@ -23,7 +23,8 @@ export const FIELD_ALIASES: Record<string, string[]> = {
     "phone_number", "phonenumber", "telephone", "tel", "mobile",
     "mobile_number", "cell", "cell_phone", "contact_phone", "primary_phone",
     "shipping_phone", "billing_phone", "order_phone", "checkout_phone",
-    "delivery_phone",
+    "delivery_phone", "home_phone", "work_phone", "office_phone",
+    "daytime_phone", "evening_phone", "personal_phone",
   ],
 
   // Address
@@ -95,7 +96,7 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   // Social
   "social.linkedin": [
     "linkedin", "linkedin_url", "linkedinprofile", "linkedin_profile",
-    "linkedin_link",
+    "linkedin_link", "linked_in", "linkedin_mandatory",
   ],
   "social.github": [
     "github", "github_url", "githubprofile", "github_profile",
@@ -142,11 +143,12 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   ],
   "passportNumber": [
     "passport_number", "pp_number", "passport_no", "pp_no",
-    "passport_num", "travel_document_number",
+    "passport_num", "travel_document_number", "pp_no_",
   ],
   "ssn": [
     "ssn", "social_security_number", "social_security", "ss_number",
     "last_4_ssn", "ssn_last_4", "last4ssn", "ssn4",
+    "last_4_digits_of_ssn", "ssn_last_four",
   ],
   "availability": [
     "availability", "available", "start_date", "available_from",
@@ -217,6 +219,13 @@ export const FIELD_ALIASES: Record<string, string[]> = {
     "document_upload", "upload_document", "other_document",
     "additional_document", "supporting_document",
   ],
+
+  // References
+  "references": [
+    "references", "reference", "professional_references",
+    "reference_contact", "reference_name", "referees",
+    "reference_details", "reference_information",
+  ],
 };
 
 /**
@@ -238,7 +247,9 @@ export const SYNONYM_GROUPS: string[][] = [
   ["email", "email_address", "emailaddress", "e_mail", "mail", "emailid", "email_id", "e_mail_id"],
   ["phone", "phone_number", "phonenumber", "telephone", "tel", "mobile",
    "cell", "cellphone", "cell_phone", "mobile_number", "contact_phone",
-   "ph", "phn", "contact_number", "phone_no", "mob", "mobile_no"],
+   "ph", "phn", "contact_number", "phone_no", "mob", "mobile_no",
+   "home_phone", "work_phone", "office_phone", "daytime_phone",
+   "evening_phone", "personal_phone"],
 
   // Address (includes shipping/billing/delivery variants)
   ["street", "street_address", "address1", "address_line_1", "line1",
@@ -343,10 +354,18 @@ export const SYNONYM_GROUPS: string[][] = [
   ["ssn_last_4_digits", "ssn", "social_security_number", "ssn_last_4",
    "last_4_ssn", "last4ssn"],
 
+  // References
+  ["references", "professional_references", "referees",
+   "reference_details", "reference_information"],
+
+  // Passport
+  ["passport_number", "pp_number", "passport_no", "pp_no",
+   "passport_num", "travel_document_number"],
+
   // Misc
   ["message", "comments", "notes", "additional_info", "remarks",
    "additional_comments", "other_info"],
-  ["referral", "referred_by", "referrer", "reference", "how_did_you_hear"],
+  ["referral", "referred_by", "referrer", "how_did_you_hear"],
 
   // Social - extended
   ["linked_in", "linkedin", "linkedin_url", "linkedin_profile",
