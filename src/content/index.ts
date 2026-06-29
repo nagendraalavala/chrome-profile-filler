@@ -1,5 +1,6 @@
 import { FormFieldInfo, FlattenedField, ExtensionMessage } from "../models/profile";
 import { matchFields } from "../matching/engine";
+import { findBestSelectMatch } from "../matching/valueNormalizer";
 
 function findLabel(element: HTMLElement): string {
   const id = element.getAttribute("id");
@@ -1143,11 +1144,7 @@ function fillField(
 
   if (element instanceof HTMLSelectElement) {
     const options = Array.from(element.options);
-    const match = options.find(
-      (opt) =>
-        opt.value.toLowerCase() === value.toLowerCase() ||
-        opt.text.toLowerCase() === value.toLowerCase()
-    );
+    const match = findBestSelectMatch(options, value);
     if (match) {
       element.value = match.value;
     }
