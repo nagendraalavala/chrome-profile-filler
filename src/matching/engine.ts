@@ -206,6 +206,17 @@ function scoreCandidate(
     }
   }
 
+  // For table cells (e.g. "java - years experience"), include row/column
+  // parts to improve mapping against imported keys like yearsExperience.
+  if (formField.templateFormat === "table" && formField.label.includes(" - ")) {
+    const [rowLabel, columnLabel] = formField.label.split(" - ").map((s) => s.trim());
+    if (rowLabel) candidates.push(rowLabel);
+    if (columnLabel) candidates.push(columnLabel);
+    if (rowLabel && columnLabel) {
+      candidates.push(`${columnLabel} ${rowLabel}`);
+    }
+  }
+
   let bestScore = 0;
   const lastSegment = dotKey.split(".").pop() || "";
   const normDotKey = normalize(dotKey.replace(/\./g, "_"));
@@ -327,6 +338,16 @@ function scoreCandidate(
 
   // Section heading boost
   bestScore += getSectionBoost(formField.sectionHeading, dotKey);
+
+  if (formField.templateFormat === "table" && formField.label.includes(" - ")) {
+    const [rowLabel, columnLabel] = formField.label.split(" - ").map((s) => normalize(s));
+    const normalizedKey = normalize(dotKey);
+    if (rowLabel && columnLabel && normalizedKey.includes(rowLabel) && normalizedKey.includes(columnLabel)) {
+      bestScore += 0.12;
+    } else if (columnLabel && normalizedKey.includes(columnLabel)) {
+      bestScore += 0.08;
+    }
+  }
 
   return Math.min(bestScore, 1);
 }
@@ -542,14 +563,11 @@ export function matchFields(
   // Detect form type for context-aware scoring
   const formType: FormType = detectFormType(formFields);
 
-  // Separate attachment-capable fields from regular profile fields
-  const attachmentFields = profileFields.filter((f) => f.isAttachment);
-  const regularFields = profileFields.filter((f) => !f.isAttachment);
+  const regularFields = profileFields;
 
   for (const formField of formFields) {
     const signature = getFieldSignature(formField);
-    const isFileField = formField.isFileInput || formField.type === "file";
-    const candidatePool = isFileField ? attachmentFields : regularFields;
+    const candidatePool = regularFields;
 
     // 1. Check saved site mappings first
     const savedMapping = siteMappings.find(
@@ -560,8 +578,6 @@ export function matchFields(
       const matched = profileFields.find((p) => p.dotKey === savedMapping.profileKey);
       if (matched) {
         const hasValue = !!(matched.value && matched.value.trim());
-        // Attachments are never auto-selected — user must explicitly check them
-        const isAttach = !!(matched.isAttachment && matched.attachment?.dataUrl);
         results.push({
           formFieldName: formField.name || formField.id,
           formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
@@ -569,10 +585,8 @@ export function matchFields(
           profileKey: matched.dotKey,
           value: matched.value,
           confidence: 1.0,
-          selected: hasValue && !isAttach,
+          selected: hasValue,
           group: getGroupPrefix(matched.dotKey) || undefined,
-          isAttachment: matched.isAttachment,
-          attachment: matched.attachment,
         });
         continue;
       }
@@ -581,7 +595,7 @@ export function matchFields(
     // 2. Try composite matching FIRST (combine multiple profile fields)
     // This ensures "Full Name" is recognized as firstName+lastName before
     // token overlap with unrelated fields (e.g. "passport" in parenthetical)
-    if (!isFileField) {
+    {
       const composite = tryCompositeMatch(formField, regularFields);
       if (composite) {
         const hasValue = !!(composite.value && composite.value.trim());
@@ -658,7 +672,6 @@ export function matchFields(
 
     if (bestMatch && bestScore >= 0.3) {
       const hasValue = !!(bestMatch.value && bestMatch.value.trim());
-      const isAttach = !!(bestMatch.isAttachment && bestMatch.attachment?.dataUrl);
       results.push({
         formFieldName: formField.name || formField.id,
         formFieldLabel: formField.label || formField.placeholder || formField.name || formField.id,
@@ -666,10 +679,8 @@ export function matchFields(
         profileKey: bestMatch.dotKey,
         value: bestMatch.value,
         confidence: Math.round(bestScore * 100) / 100,
-        selected: (hasValue || isAttach) && bestScore >= 0.6 && !isAttach,
+        selected: hasValue && bestScore >= 0.6,
         group: getGroupPrefix(bestMatch.dotKey) || undefined,
-        isAttachment: bestMatch.isAttachment,
-        attachment: bestMatch.attachment,
       });
       continue;
     }

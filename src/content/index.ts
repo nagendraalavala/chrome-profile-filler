@@ -562,34 +562,6 @@ function scanIframeFields(): FormFieldInfo[] {
 // Main scan: combines standard inputs + contenteditable + iframes
 // ---------------------------------------------------------------------------
 
-function scanFileInputs(): FormFieldInfo[] {
-  const fields: FormFieldInfo[] = [];
-  // Find all file inputs including hidden ones (Gmail uses hidden file inputs for attachments)
-  const fileInputs = document.querySelectorAll<HTMLInputElement>("input[type='file']");
-
-  fileInputs.forEach((el) => {
-    // For Gmail/Outlook, include hidden file inputs near compose areas
-    const isGmailFileInput = el.closest("[role='dialog']") || el.closest(".compose") ||
-                             el.closest("[data-action='composenew']") || el.closest(".dC");
-    if (!isVisible(el) && !isGmailFileInput) return;
-
-    fields.push({
-      element: el,
-      name: el.getAttribute("name") || "attachment",
-      id: el.getAttribute("id") || "",
-      label: findLabel(el) || "Attachment",
-      type: "file",
-      placeholder: "",
-      sectionHeading: findSectionHeading(el),
-      autocomplete: "",
-      isFileInput: true,
-      acceptTypes: el.getAttribute("accept") || "",
-    });
-  });
-
-  return fields;
-}
-
 function scanRadioGroups(): FormFieldInfo[] {
   const fields: FormFieldInfo[] = [];
   const seenNames = new Set<string>();
@@ -690,20 +662,26 @@ function scanFormFields(): FormFieldInfo[] {
   const iframeFields = scanIframeFields();
   fields.push(...iframeFields);
 
-  // Scan file input fields for attachment support
-  const fileFields = scanFileInputs();
-  fields.push(...fileFields);
-
   // Deduplicate template fields sharing the same label+element
   return deduplicateTemplateFields(fields);
 }
 
 function deduplicateTemplateFields(fields: FormFieldInfo[]): FormFieldInfo[] {
   const seen = new Set<string>();
+  const elementIds = new WeakMap<Element, number>();
+  let nextElementId = 1;
+
+  const getElementId = (element: Element): number => {
+    const existing = elementIds.get(element);
+    if (existing) return existing;
+    const newId = nextElementId++;
+    elementIds.set(element, newId);
+    return newId;
+  };
+
   return fields.filter((f) => {
     if (!f.isTemplateField || !f.templateLabel) return true;
-    // Use element reference identity + label as dedup key
-    const key = `${f.templateLabel}::${f.templateFormat}`;
+    const key = `${getElementId(f.element)}::${f.templateLabel}::${f.templateFormat}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -744,7 +722,16 @@ function selectionIntersectsField(
 function scanSelectionFields(): FormFieldInfo[] {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-    return [];
+    const active = document.activeElement as HTMLElement | null;
+    if (!active) return [];
+    const scanRoot =
+      active.closest("table, form, [contenteditable='true'], [contenteditable=''], [role='textbox']") ||
+      active;
+    const tableFields = scanTableFields(scanRoot as HTMLElement);
+    if (tableFields.length > 0) {
+      return deduplicateTemplateFields(tableFields);
+    }
+    return scanFormFields().filter((f) => f.element === active || active.contains(f.element));
   }
 
   // Get the container element that encompasses the selection
@@ -876,158 +863,6 @@ function serializeFormFields(fields: FormFieldInfo[]): Array<Omit<FormFieldInfo,
 // ---------------------------------------------------------------------------
 // Fill logic: standard inputs, selects, contenteditable, iframes, files
 // ---------------------------------------------------------------------------
-
-function dataUrlToFile(dataUrl: string, fileName: string): File {
-  const [header, base64Data] = dataUrl.split(",");
-  const mimeMatch = header.match(/:(.*?);/);
-  const mimeType = mimeMatch ? mimeMatch[1] : "application/octet-stream";
-  const byteString = atob(base64Data);
-  const ab = new ArrayBuffer(byteString.length);
-  const ia = new Uint8Array(ab);
-  for (let i = 0; i < byteString.length; i++) {
-    ia[i] = byteString.charCodeAt(i);
-  }
-  return new File([ab], fileName, { type: mimeType });
-}
-
-function fillFileInput(
-  element: HTMLInputElement,
-  dataUrl: string,
-  fileName: string
-): boolean {
-  try {
-    const file = dataUrlToFile(dataUrl, fileName);
-    const dt = new DataTransfer();
-    dt.items.add(file);
-    element.files = dt.files;
-    element.dispatchEvent(new Event("change", { bubbles: true }));
-    element.dispatchEvent(new Event("input", { bubbles: true }));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Drop a file onto an element using drag-and-drop events.
- * This works for Gmail/Outlook compose areas where hidden file inputs
- * may not accept direct .files assignment.
- */
-function dropFileOnElement(
-  element: HTMLElement,
-  dataUrl: string,
-  fileName: string
-): boolean {
-  try {
-    const file = dataUrlToFile(dataUrl, fileName);
-    const dt = new DataTransfer();
-    dt.items.add(file);
-
-    const dragEnterEvent = new DragEvent("dragenter", {
-      bubbles: true,
-      cancelable: true,
-      dataTransfer: dt,
-    });
-    element.dispatchEvent(dragEnterEvent);
-
-    const dragOverEvent = new DragEvent("dragover", {
-      bubbles: true,
-      cancelable: true,
-      dataTransfer: dt,
-    });
-    element.dispatchEvent(dragOverEvent);
-
-    const dropEvent = new DragEvent("drop", {
-      bubbles: true,
-      cancelable: true,
-      dataTransfer: dt,
-    });
-    element.dispatchEvent(dropEvent);
-
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Try to attach a file to Gmail/Outlook by finding the compose dialog's
- * hidden file input, setting files via DataTransfer, and triggering change.
- * Falls back to: click the attach button → download file → user selects it.
- */
-function attachToEmailCompose(
-  contextElement: HTMLElement,
-  dataUrl: string,
-  fileName: string
-): boolean {
-  // Find the compose dialog container
-  const composeDialog = contextElement.closest("[role='dialog']") ||
-                        contextElement.closest(".compose") ||
-                        contextElement.closest(".nH") ||
-                        document.querySelector("[role='dialog']");
-
-  if (!composeDialog) return false;
-
-  // Strategy 1: Find Gmail's hidden file input and set files directly
-  const fileInputSelectors = [
-    "input[type='file'][name='Filedata']",
-    "input[type='file']",
-  ];
-  for (const sel of fileInputSelectors) {
-    const inputs = composeDialog.querySelectorAll<HTMLInputElement>(sel);
-    for (const input of inputs) {
-      if (fillFileInput(input, dataUrl, fileName)) {
-        return true;
-      }
-    }
-  }
-
-  // Strategy 2: Click the attach button to create/reveal the file input,
-  // set up an observer to catch it, then set files on it
-  const attachBtnSelectors = [
-    "[aria-label*='Attach']",
-    "[data-tooltip*='Attach']",
-    ".wG .e5",
-    "[command='Files']",
-    ".a1.aaA.aMZ",
-  ];
-
-  for (const sel of attachBtnSelectors) {
-    const btn = composeDialog.querySelector<HTMLElement>(sel);
-    if (btn) {
-      // Set up a MutationObserver to catch file input creation
-      let fileInputFound = false;
-      const observer = new MutationObserver((mutations) => {
-        for (const m of mutations) {
-          for (const node of m.addedNodes) {
-            if (node instanceof HTMLInputElement && node.type === "file") {
-              fileInputFound = fillFileInput(node, dataUrl, fileName);
-              observer.disconnect();
-            }
-          }
-        }
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-
-      btn.click();
-
-      // Give Gmail a moment then disconnect
-      setTimeout(() => observer.disconnect(), 500);
-      if (fileInputFound) return true;
-      break;
-    }
-  }
-
-  // Strategy 3: Drag-and-drop onto the compose body
-  const dropTarget = composeDialog.querySelector("[contenteditable='true']") ||
-                     composeDialog.querySelector("[role='textbox']") ||
-                     contextElement;
-  if (dropFileOnElement(dropTarget as HTMLElement, dataUrl, fileName)) {
-    return true;
-  }
-
-  return false;
-}
 
 function fillContentEditable(element: HTMLElement, value: string): void {
   element.focus();
@@ -1621,9 +1456,6 @@ chrome.runtime.onMessage.addListener(
       const fillData = message.data as Array<{
         index: number;
         value: string;
-        isAttachment?: boolean;
-        dataUrl?: string;
-        fileName?: string;
         profileKey?: string;
       }>;
 
@@ -1634,49 +1466,7 @@ chrome.runtime.onMessage.addListener(
       for (const item of fillData) {
         if (item.index >= 0 && item.index < lastScannedFields.length) {
           const field = lastScannedFields[item.index];
-          if (item.isAttachment && item.dataUrl && item.fileName) {
-            let attached = false;
-
-            if (field.element instanceof HTMLInputElement && field.element.type === "file") {
-              attached = fillFileInput(field.element, item.dataUrl, item.fileName);
-            }
-
-            if (!attached) {
-              attached = attachToEmailCompose(field.element, item.dataUrl, item.fileName);
-            }
-
-            if (!attached) {
-              try {
-                chrome.runtime.sendMessage({
-                  action: "DOWNLOAD_ATTACHMENT",
-                  data: { dataUrl: item.dataUrl, fileName: item.fileName },
-                });
-
-                const dialog = field.element.closest("[role='dialog']") ||
-                               field.element.closest(".compose") ||
-                               document.querySelector("[role='dialog']");
-                if (dialog) {
-                  const attachBtn = dialog.querySelector<HTMLElement>(
-                    "[aria-label*='Attach'], [data-tooltip*='Attach'], [command='Files']"
-                  );
-                  if (attachBtn) {
-                    setTimeout(() => attachBtn.click(), 300);
-                  }
-                }
-
-                attached = true;
-              } catch {
-                const composeArea = field.element.closest("[contenteditable='true']") ||
-                                    document.querySelector("[role='textbox'][contenteditable='true']") ||
-                                    field.element;
-                attached = dropFileOnElement(composeArea as HTMLElement, item.dataUrl, item.fileName);
-              }
-            }
-
-            if (attached) {
-              filledCount++;
-            }
-          } else if (field.isTemplateField && field.templateFormat === "table") {
+          if (field.isTemplateField && field.templateFormat === "table") {
             fillTableCell(field.element, item.value);
             filledCount++;
           } else if (field.isTemplateField && field.templateLabel) {
@@ -1722,16 +1512,7 @@ chrome.runtime.onMessage.addListener(
         if (i >= fields.length) continue;
         const field = fields[i];
 
-        if (m.isAttachment && m.attachment?.dataUrl && m.attachment?.fileName) {
-          let attached = false;
-          if (field.element instanceof HTMLInputElement && field.element.type === "file") {
-            attached = fillFileInput(field.element, m.attachment.dataUrl, m.attachment.fileName);
-          }
-          if (!attached) {
-            attached = attachToEmailCompose(field.element, m.attachment.dataUrl, m.attachment.fileName);
-          }
-          if (attached) { filledCount++; filledFields.push(m.profileKey); }
-        } else if (field.isTemplateField && field.templateFormat === "table") {
+        if (field.isTemplateField && field.templateFormat === "table") {
           fillTableCell(field.element, m.value);
           filledCount++;
           filledFields.push(m.profileKey);

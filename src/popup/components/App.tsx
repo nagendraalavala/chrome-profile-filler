@@ -89,8 +89,9 @@ export default function App() {
   const [matches, setMatches] = useState<MatchResult[]>([]);
   const [scannedFields, setScannedFields] = useState<SerializedFormField[]>([]);
   const [flatFields, setFlatFields] = useState<FlattenedField[]>([]);
-  const [statusMsg, setStatusMsg] = useState("");
-  const [statusType, setStatusType] = useState<"success" | "error">("success");
+  const [statusToasts, setStatusToasts] = useState<
+    Array<{ id: number; msg: string; type: "success" | "error" }>
+  >([]);
   const [isScanning, setIsScanning] = useState(false);
   const [syncOn, setSyncOn] = useState(false);
 
@@ -178,9 +179,11 @@ export default function App() {
   }, [activeProfile]);
 
   const showStatus = useCallback((msg: string, type: "success" | "error") => {
-    setStatusMsg(msg);
-    setStatusType(type);
-    setTimeout(() => setStatusMsg(""), 3000);
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    setStatusToasts((prev) => [...prev, { id, msg, type }]);
+    setTimeout(() => {
+      setStatusToasts((prev) => prev.filter((item) => item.id !== id));
+    }, 3500);
   }, []);
 
   const handleProfileChange = async (profileId: string) => {
@@ -363,17 +366,15 @@ export default function App() {
         profileKey: newProfileKey,
         value: pf?.value || "",
         confidence: newProfileKey ? 1.0 : 0,
-        selected: !!newProfileKey && !!(pf?.value || (pf?.isAttachment && pf?.attachment?.dataUrl)),
+        selected: !!newProfileKey && !!pf?.value,
         group: newProfileKey.includes(".") ? newProfileKey.split(".")[0] : undefined,
-        isAttachment: pf?.isAttachment,
-        attachment: pf?.attachment,
       };
       return updated;
     });
   };
 
   const handleFillFields = async () => {
-    const selectedMatches = matches.filter((m) => m.selected && (m.value || (m.isAttachment && m.attachment?.dataUrl)));
+    const selectedMatches = matches.filter((m) => m.selected && m.value);
     if (selectedMatches.length === 0) {
       showStatus("No fields selected for filling", "error");
       return;
@@ -401,9 +402,6 @@ export default function App() {
           return {
             index: fieldIndex,
             value: m.value,
-            isAttachment: m.isAttachment,
-            dataUrl: m.attachment?.dataUrl,
-            fileName: m.attachment?.fileName,
           };
         })
         .filter((d) => d.index >= 0);
@@ -584,7 +582,7 @@ export default function App() {
             <button
               className="header-btn open-tab-btn"
               onClick={handleOpenInTab}
-              title="Open in full tab (required for document uploads)"
+              title="Open in full tab"
             >
               {t("openInTab")}
             </button>
@@ -701,7 +699,6 @@ export default function App() {
       <div className="tab-content">
         {activeTab === "edit" && activeProfile && (
           <div className="fields-editor">
-            <ProfileCompleteness fields={activeProfile.fields} />
             <FieldEditor
               fields={activeProfile.fields}
               onChange={handleFieldsChange}
@@ -800,47 +797,13 @@ export default function App() {
         </div>
       )}
 
-      {statusMsg && (
-        <div className={`status-bar ${statusType}`}>{statusMsg}</div>
-      )}
-    </div>
-  );
-}
-
-const COMMON_FIELDS = [
-  "firstName", "lastName", "email", "phone", "address", "city", "state", "zip",
-  "country", "dob", "ssn", "linkedin", "visaStatus", "passport",
-];
-
-function ProfileCompleteness({ fields }: { fields: ProfileField[] }) {
-  const flat = flattenFields(fields);
-  const filled = flat.filter((f) => f.value && f.value.trim()).length;
-  const total = flat.length;
-  const pct = total > 0 ? Math.round((filled / total) * 100) : 0;
-
-  const missing = COMMON_FIELDS.filter((key) =>
-    !flat.some((f) => {
-      const fKey = f.dotKey.toLowerCase().replace(/[^a-z]/g, "");
-      return fKey.includes(key.toLowerCase());
-    })
-  );
-
-  const barColor = pct >= 80 ? "#22c55e" : pct >= 50 ? "#f59e0b" : "#ef4444";
-
-  return (
-    <div className="completeness-bar" style={{ padding: "6px 8px", borderBottom: "1px solid #eee" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <div style={{ flex: 1, height: 6, background: "#e5e7eb", borderRadius: 3, overflow: "hidden" }}>
-          <div style={{ width: `${pct}%`, height: "100%", background: barColor, borderRadius: 3, transition: "width 0.3s" }} />
-        </div>
-        <span style={{ fontSize: 11, fontWeight: 600, color: barColor, minWidth: 36 }}>{pct}%</span>
-        <span style={{ fontSize: 10, color: "#999" }}>{filled}/{total} fields</span>
+      <div className="status-toast-stack">
+        {statusToasts.map((toast) => (
+          <div key={toast.id} className={`status-toast ${toast.type}`}>
+            {toast.msg}
+          </div>
+        ))}
       </div>
-      {missing.length > 0 && (
-        <div style={{ fontSize: 10, color: "#999", marginTop: 3 }}>
-          Missing: {missing.slice(0, 5).join(", ")}{missing.length > 5 ? ` +${missing.length - 5} more` : ""}
-        </div>
-      )}
     </div>
   );
 }
