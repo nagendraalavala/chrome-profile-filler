@@ -374,7 +374,9 @@ export default function App() {
   };
 
   const handleFillFields = async () => {
-    const selectedMatches = matches.filter((m) => m.selected && m.value);
+    const selectedMatches = matches
+      .map((m, index) => ({ match: m, index }))
+      .filter(({ match }) => match.selected && match.value);
     if (selectedMatches.length === 0) {
       showStatus("No fields selected for filling", "error");
       return;
@@ -392,19 +394,13 @@ export default function App() {
 
       // Build fill data with indices from scannedFields
       const fillData = selectedMatches
-        .map((m) => {
-          const fieldIndex = scannedFields.findIndex(
-            (sf) =>
-              (sf.name && sf.name === m.formFieldName) ||
-              (sf.id && sf.id === m.formFieldName) ||
-              (sf.isTemplateField && sf.templateLabel === m.formFieldLabel)
-          );
-          return {
-            index: fieldIndex,
-            value: m.value,
-          };
-        })
-        .filter((d) => d.index >= 0);
+        .filter(({ index }) => index >= 0 && index < scannedFields.length)
+        .map(({ match, index }) => ({
+          // Keep the original scan index from the match list to avoid
+          // mismatches on pages where multiple inputs share the same name/id.
+          index,
+          value: match.value,
+        }));
 
       const response = await sendMessageWithInjection(tab.id, {
         action: "FILL_FIELDS",
@@ -419,6 +415,34 @@ export default function App() {
         `Fill failed: ${err instanceof Error ? err.message : "Unknown error"}`,
         "error"
       );
+    }
+  };
+
+  const handleBulkSelect = (
+    mode: "all" | "clear" | "invert" | "smart",
+  ) => {
+    setMatches((prev) =>
+      prev.map((match) => {
+        if (!match.value) {
+          return { ...match, selected: false };
+        }
+        if (mode === "all") {
+          return { ...match, selected: true };
+        }
+        if (mode === "clear") {
+          return { ...match, selected: false };
+        }
+        if (mode === "invert") {
+          return { ...match, selected: !match.selected };
+        }
+        return {
+          ...match,
+          selected: match.confidence >= 0.6,
+        };
+      }),
+    );
+    if (mode === "smart") {
+      showStatus("Smart selected high-confidence matches", "success");
     }
   };
 
@@ -779,6 +803,34 @@ export default function App() {
 
       {activeTab === "preview" && matches.length > 0 && (
         <div className="fill-bar">
+          <button
+            className="save-mapping-btn bulk-select-btn"
+            onClick={() => handleBulkSelect("smart")}
+            title="Select high-confidence matches with values"
+          >
+            Smart Select
+          </button>
+          <button
+            className="save-mapping-btn bulk-select-btn"
+            onClick={() => handleBulkSelect("all")}
+            title="Select all rows that have a value"
+          >
+            All
+          </button>
+          <button
+            className="save-mapping-btn bulk-select-btn"
+            onClick={() => handleBulkSelect("invert")}
+            title="Invert current selection for rows with values"
+          >
+            Invert
+          </button>
+          <button
+            className="save-mapping-btn bulk-select-btn"
+            onClick={() => handleBulkSelect("clear")}
+            title="Clear all selected rows"
+          >
+            Clear
+          </button>
           <button
             className="fill-btn"
             onClick={handleFillFields}
