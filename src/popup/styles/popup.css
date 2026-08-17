@@ -490,6 +490,11 @@ body {
   background: #dcfce7;
 }
 
+.bulk-select-btn {
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
 /* Import/Export */
 .import-export-section {
   padding: 12px;
